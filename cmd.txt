@@ -1,5 +1,5 @@
 Pour lancer speculos: 
-dans MuSig2_speculos
+dans MuSig2_app
 
 speculos 1
 docker run --rm -it -v "$(pwd)"/rust4speculos/target/thumbv6m-none-eabi/release:/speculos/apps \

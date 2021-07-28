@@ -2,8 +2,8 @@
 #![no_main]
 
 mod crypto_helpers;
-mod utils;
 mod data_types;
+mod utils;
 
 use core::str::from_utf8;
 use crypto_helpers::*;
@@ -13,6 +13,8 @@ use nanos_sdk::buttons::ButtonEvent;
 use nanos_sdk::io;
 use nanos_sdk::io::SyscallError;
 use nanos_ui::ui;
+
+use hex_literal;
 
 pub const N_BYTES: u32 = 32;
 
@@ -132,20 +134,37 @@ fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallEr
             }
         }
         // déclaration
-        let mut mod_bytes: [u8; N_BYTES as usize] = hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let mut mod_bytes: [u8; N_BYTES as usize] = hex_literal::hex!(
+            "FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"
+        ); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
         let mod_bytes_ptr: *mut u8 = mod_bytes.as_mut_ptr();
 
         let mut field1_bytes = [0_u8; N_BYTES as usize];
+        for i in 0..N_BYTES {
+            field1_bytes[i as usize] = message[i as usize];
+        }
         let field1_bytes_ptr = field1_bytes.as_mut_ptr();
 
         let mut field2_bytes = [0_u8; N_BYTES as usize];
+        for i in 0..N_BYTES {
+            field2_bytes[i as usize] = message[i as usize + N_BYTES as usize];
+        }
         let field2_bytes_ptr = field2_bytes.as_mut_ptr();
 
         let field1: Field = Field::new_init(field1_bytes_ptr)?;
+        field1.show()?;
         let field2: Field = Field::new_init(field2_bytes_ptr)?;
+        field2.show()?;
         let modulo: Field = Field::new_init(mod_bytes_ptr)?;
 
         let field3 = field1.add(field2, modulo)?;
+        unsafe {
+            match bindings::cx_bn_unlock() {
+                bindings::CX_OK => (),
+                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
+                _ => return Err(SyscallError::Unspecified),
+            }
+        }
         Ok(Some(field3.bytes))
     } else {
         ui::popup("Cancelled");
