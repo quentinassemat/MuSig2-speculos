@@ -2,10 +2,6 @@
 #![no_main]
 
 mod crypto_helpers;
-<<<<<<< Updated upstream
-=======
-mod cx_helpers;
->>>>>>> Stashed changes
 mod data_types;
 mod utils;
 
@@ -138,29 +134,16 @@ fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallEr
             }
         }
         // déclaration
-<<<<<<< Updated upstream
         let mut mod_bytes: [u8; N_BYTES as usize] = hex_literal::hex!(
             "FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"
         ); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
         let mod_bytes_ptr: *mut u8 = mod_bytes.as_mut_ptr();
-=======
-        let mod_bytes: [u8; N_BYTES as usize] =
-            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
->>>>>>> Stashed changes
 
         let mut field1_bytes = [0_u8; N_BYTES as usize];
         for i in 0..N_BYTES {
             field1_bytes[i as usize] = message[i as usize];
         }
-<<<<<<< Updated upstream
         let field1_bytes_ptr = field1_bytes.as_mut_ptr();
-=======
-
-        let mut field2_bytes = [0_u8; N_BYTES as usize];
-        for i in 0..N_BYTES {
-            field2_bytes[i as usize] = message[i as usize + N_BYTES as usize];
-        }
->>>>>>> Stashed changes
 
         let mut field2_bytes = [0_u8; N_BYTES as usize];
         for i in 0..N_BYTES {
