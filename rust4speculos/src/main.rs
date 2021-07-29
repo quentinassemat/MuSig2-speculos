@@ -2,19 +2,20 @@
 #![no_main]
 
 mod crypto_helpers;
+mod cx_helpers;
 mod data_types;
 mod utils;
 
 use core::str::from_utf8;
 use crypto_helpers::*;
-use data_types::*;
+use data_types::Field;
 use nanos_sdk::bindings;
 use nanos_sdk::buttons::ButtonEvent;
 use nanos_sdk::io;
 use nanos_sdk::io::SyscallError;
 use nanos_ui::ui;
 
-use hex_literal;
+use hex_literal::hex;
 
 pub const N_BYTES: u32 = 32;
 
@@ -38,27 +39,6 @@ fn show_pubkey() {
             }
         }
         Err(_) => ui::popup("Error"),
-    }
-}
-
-/// Basic nested menu. Will be subject
-/// to simplifications in the future.
-#[allow(clippy::needless_borrow)]
-fn menu_example() {
-    loop {
-        match ui::Menu::new(&[&"PubKey", &"Infos", &"Back", &"Exit App"]).show() {
-            0 => show_pubkey(),
-            1 => loop {
-                match ui::Menu::new(&[&"Copyright", &"Authors", &"Back"]).show() {
-                    0 => ui::popup("2020 Ledger"),
-                    1 => ui::popup("???"),
-                    _ => break,
-                }
-            },
-            2 => return,
-            3 => nanos_sdk::exit_app(0),
-            _ => (),
-        }
     }
 }
 
@@ -88,27 +68,17 @@ extern "C" fn sample_main() {
 
 fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, SyscallError> {
     if ui::Validator::new("Add int ?").ask() {
-        let mut int1_bytes: [u8; 4] = [0; 4];
-        int1_bytes[0] = message[0];
-        int1_bytes[1] = message[1];
-        int1_bytes[2] = message[2];
-        int1_bytes[3] = message[3];
-
+        let int1_bytes: [u8; 4] = [message[0], message[1], message[2], message[3]];
         {
-            let hex = utils::to_hex(&message[0..4]).map_err(|_| SyscallError::Overflow)?;
+            let hex = utils::to_hex(&int1_bytes).map_err(|_| SyscallError::Overflow)?;
             let m = from_utf8(&hex).map_err(|_| SyscallError::InvalidParameter)?;
             ui::popup("Int 1");
             ui::popup(m);
         }
 
-        let mut int2_bytes: [u8; 4] = [0; 4];
-        int2_bytes[0] = message[4];
-        int2_bytes[1] = message[5];
-        int2_bytes[2] = message[6];
-        int2_bytes[3] = message[7];
-
+        let int2_bytes: [u8; 4] = [message[4], message[5], message[6], message[7]];
         {
-            let hex = utils::to_hex(&message[4..8]).map_err(|_| SyscallError::Overflow)?;
+            let hex = utils::to_hex(&int2_bytes).map_err(|_| SyscallError::Overflow)?;
             let m = from_utf8(&hex).map_err(|_| SyscallError::InvalidParameter)?;
             ui::popup("Int 2");
             ui::popup(m);
@@ -134,37 +104,24 @@ fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallEr
             }
         }
         // déclaration
-        let mut mod_bytes: [u8; N_BYTES as usize] = hex_literal::hex!(
-            "FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"
-        ); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
-        let mod_bytes_ptr: *mut u8 = mod_bytes.as_mut_ptr();
-
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        
         let mut field1_bytes = [0_u8; N_BYTES as usize];
         for i in 0..N_BYTES {
             field1_bytes[i as usize] = message[i as usize];
         }
-        let field1_bytes_ptr = field1_bytes.as_mut_ptr();
 
         let mut field2_bytes = [0_u8; N_BYTES as usize];
         for i in 0..N_BYTES {
             field2_bytes[i as usize] = message[i as usize + N_BYTES as usize];
         }
-        let field2_bytes_ptr = field2_bytes.as_mut_ptr();
 
-        let field1: Field = Field::new_init(field1_bytes_ptr)?;
-        field1.show()?;
-        let field2: Field = Field::new_init(field2_bytes_ptr)?;
-        field2.show()?;
-        let modulo: Field = Field::new_init(mod_bytes_ptr)?;
+        let field1: Field = Field::new_init(&field1_bytes)?;
+        let field2: Field = Field::new_init(&field2_bytes)?;
+        let modulo: Field = Field::new_init(&mod_bytes)?;
 
         let field3 = field1.add(field2, modulo)?;
-        unsafe {
-            match bindings::cx_bn_unlock() {
-                bindings::CX_OK => (),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                _ => return Err(SyscallError::Unspecified),
-            }
-        }
         Ok(Some(field3.bytes))
     } else {
         ui::popup("Cancelled");
@@ -172,137 +129,36 @@ fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallEr
     }
 }
 
+use crate::cx_helpers::*;
 fn add_point(message: &[u8]) -> Result<Option<[u8; 2 * N_BYTES as usize + 1_usize]>, SyscallError> {
     if ui::Validator::new("Add point ?").ask() {
-        unsafe {
-            match bindings::cx_bn_lock(N_BYTES, 0) {
-                bindings::CX_OK => (),
-                bindings::CX_LOCKED => return Err(SyscallError::InvalidState),
-                _ => return Err(SyscallError::Unspecified),
-            }
-        }
+        cx_bn_lock(N_BYTES, 0)?;
 
         let mut sum_bytes: [u8; 2 * N_BYTES as usize + 1] = [0; 2 * N_BYTES as usize + 1]; // ce qu'on cherche à export
 
-        unsafe {
-            let mut point1 = bindings::cx_ecpoint_t::default();
-            match bindings::cx_ecpoint_alloc(&mut point1, bindings::CX_CURVE_SECP256K1) {
-                bindings::CX_OK => (),
-                bindings::CX_EC_INVALID_CURVE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
+        let mut point1 = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
+        let mut point2 = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
+        let mut point_sum = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
 
-            let mut point2 = bindings::cx_ecpoint_t::default();
-            match bindings::cx_ecpoint_alloc(&mut point2, bindings::CX_CURVE_SECP256K1) {
-                bindings::CX_OK => (),
-                bindings::CX_EC_INVALID_CURVE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
+        cx_ecpoint_init(&mut point1, &message[1..33], &message[33..65])?;
+        cx_ecpoint_init(&mut point2, &message[66..98], &message[98..130])?;
 
-            let mut point_sum = bindings::cx_ecpoint_t::default();
-            match bindings::cx_ecpoint_alloc(&mut point_sum, bindings::CX_CURVE_SECP256K1) {
-                bindings::CX_OK => (),
-                bindings::CX_EC_INVALID_CURVE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
+        // on fait l'addition des deux points
+        cx_ecpoint_add(&mut point_sum, &point1, &point2)?;
 
-            let mut x_point1_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            for i in 0..N_BYTES {
-                x_point1_bytes[i as usize] = message[1 + i as usize];
-            }
+        //on export on renvoie en non compressé :
 
-            let mut y_point1_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            for i in 0..N_BYTES {
-                y_point1_bytes[i as usize] = message[1 + N_BYTES as usize + i as usize];
-            }
+        let mut x_sum_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
+        let mut y_sum_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
 
-            let point1_ptr: *mut bindings::cx_ecpoint_t = &mut point1;
-            bindings::cx_ecpoint_init(
-                point1_ptr,
-                x_point1_bytes.as_ptr(),
-                N_BYTES,
-                y_point1_bytes.as_ptr(),
-                N_BYTES,
-            );
+        cx_ecpoint_export(&point_sum, &mut x_sum_bytes, &mut y_sum_bytes)?;
 
-            let mut x_point2_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            for i in 0..N_BYTES {
-                x_point2_bytes[i as usize] = message[2 + i as usize + 2 * N_BYTES as usize];
-            }
-
-            let mut y_point2_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            for i in 0..N_BYTES {
-                y_point2_bytes[i as usize] = message[2 + 3 * N_BYTES as usize + i as usize];
-            }
-
-            let point2_ptr: *mut bindings::cx_ecpoint_t = &mut point2;
-            bindings::cx_ecpoint_init(
-                point2_ptr,
-                x_point2_bytes.as_ptr(),
-                N_BYTES,
-                y_point2_bytes.as_ptr(),
-                N_BYTES,
-            );
-
-            let point_sum_ptr: *mut bindings::cx_ecpoint_t = &mut point_sum;
-            let point1_ptr_copy = point1_ptr;
-            let point2_ptr_copy = point2_ptr;
-
-            // on fait l'addition des deux points
-
-            match bindings::cx_ecpoint_add(point_sum_ptr, point1_ptr_copy, point2_ptr_copy) {
-                bindings::CX_OK => (),
-                bindings::CX_EC_INVALID_CURVE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_EC_INVALID_POINT => return Err(SyscallError::InvalidParameter),
-                bindings::CX_EC_INFINITE_POINT => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
-
-            //on export on renvoie en non compressé :
-
-            let mut x_sum_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            let mut y_sum_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-
-            match bindings::cx_ecpoint_export(
-                point_sum_ptr,
-                x_sum_bytes.as_mut_ptr(),
-                N_BYTES,
-                y_sum_bytes.as_mut_ptr(),
-                N_BYTES,
-            ) {
-                bindings::CX_OK => (),
-                bindings::CX_INVALID_PARAMETER_VALUE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_INVALID_PARAMETER_SIZE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
-
-            sum_bytes[0] = 4; // on dit qu'on fait non compressé;
-            for i in 0..N_BYTES {
-                sum_bytes[1 + i as usize] = x_sum_bytes[i as usize];
-                sum_bytes[1 + i as usize + N_BYTES as usize] = y_sum_bytes[i as usize];
-            }
+        sum_bytes[0] = 4; // on dit qu'on fait non compressé;
+        for i in 0..N_BYTES {
+            sum_bytes[1 + i as usize] = x_sum_bytes[i as usize];
+            sum_bytes[1 + i as usize + N_BYTES as usize] = y_sum_bytes[i as usize];
         }
-        unsafe {
-            match bindings::cx_bn_unlock() {
-                bindings::CX_OK => (),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                _ => return Err(SyscallError::Unspecified),
-            }
-        }
+        cx_bn_unlock()?;
         Ok(Some(sum_bytes))
     } else {
         ui::popup("Cancelled");
@@ -316,7 +172,6 @@ enum Ins {
     RecInt,
     RecField,
     RecPoint,
-    Menu,
     ShowPrivateKey,
     Exit,
 }
@@ -325,7 +180,6 @@ impl From<u8> for Ins {
     fn from(ins: u8) -> Ins {
         match ins {
             1 => Ins::GetPubkey,
-            2 => Ins::Menu,
             3 => Ins::RecInt,
             4 => Ins::RecField,
             5 => Ins::RecPoint,
@@ -345,7 +199,6 @@ fn handle_apdu(comm: &mut io::Comm, ins: Ins) -> Result<(), Reply> {
 
     match ins {
         Ins::GetPubkey => comm.append(&get_pubkey()?.W),
-        Ins::Menu => menu_example(),
         Ins::ShowPrivateKey => comm.append(&bip32_derive_secp256k1(&BIP32_PATH)?),
         Ins::Exit => nanos_sdk::exit_app(0),
         Ins::RecInt => {
