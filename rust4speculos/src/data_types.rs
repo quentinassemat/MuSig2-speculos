@@ -128,14 +128,13 @@ impl Field {
         Ok(Field { index, bytes })
     }
 
-    pub fn show(&self) {
-        let hex = utils::to_hex(&self.bytes)
-            .map_err(|_| SyscallError::Overflow)
-            .unwrap();
-        let m = from_utf8(&hex)
-            .map_err(|_| SyscallError::InvalidParameter)
-            .unwrap();
+    //affichage
+
+    pub fn show(&self) -> Result<(), SyscallError> {
+        let hex = utils::to_hex(&self.bytes).map_err(|_| SyscallError::Overflow)?;
+        let m = from_utf8(&hex).map_err(|_| SyscallError::InvalidParameter)?;
         ui::MessageScroller::new(m).event_loop();
+        Ok(())
     }
 }
 
@@ -164,17 +163,10 @@ impl Point {
         if !cx_bn_is_locked() {
             return Err(SyscallError::InvalidState);
         }
-
         // on alloue la mémoire
         let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
-
         // on init
-        cx_ecpoint_init(
-            &mut p,
-            x,
-            y,
-        );
-
+        cx_ecpoint_init(&mut p, x, y)?;
         // on renvoie
         Ok(Point { p })
     }
@@ -213,15 +205,32 @@ impl Point {
         cx_ecpoint_rnd_scalarmul_bn(&mut self.p, other.index)
     }
 
+    //
+
+    pub fn is_at_infinity(&self) -> Result<bool, SyscallError> {
+        let mut res: bool = false;
+        let mut res_ptr: *mut bool = &mut res;
+        cx_ecpoint_is_at_infinity(&self.p, res_ptr)?;
+        Ok(res)
+    }
+
+    pub fn is_on_curve(&self) -> Result<bool, SyscallError> {
+        let mut res: bool = false;
+        let mut res_ptr: *mut bool = &mut res;
+        cx_ecpoint_is_on_curve(&self.p, res_ptr)?;
+        Ok(res)
+    }
+
     // les trois getters des coordonnées
 
     pub fn coords(&self) -> Result<(Field, Field), SyscallError> {
         let mut x_bytes = [0_u8; N_BYTES as usize];
         let mut y_bytes = [0_u8; N_BYTES as usize];
-
         cx_ecpoint_export(&self.p, &mut x_bytes, &mut y_bytes)?;
+        let x = Field::new_init(&x_bytes)?;
+        let y = Field::new_init(&y_bytes)?;
 
-        Ok((Field::new_init(&x_bytes)?, Field::new_init(&y_bytes)?))
+        Ok((x, y))
     }
 
     pub fn x_affine(&self) -> Result<Field, SyscallError> {
@@ -234,10 +243,23 @@ impl Point {
         Ok(y)
     }
 
+    pub fn export_apdu(&self) -> Result<[u8; 2 * N_BYTES as usize + 1], SyscallError> {
+        let (x,y) = self.coords()?;
+        let mut bytes: [u8; 2 * N_BYTES as usize + 1] = [0; 2 * N_BYTES as usize + 1];
+        bytes[0] = 4; // on dit qu'on fait non compressé;
+        for i in 0..N_BYTES {
+            bytes[1 + i as usize] = x.bytes[i as usize];
+            bytes[1 + i as usize + N_BYTES as usize] = y.bytes[i as usize];
+        }
+        Ok(bytes)
+    }
+
+    // affichage
+
     pub fn show(&self) -> Result<(), SyscallError> {
         let (x, y) = self.coords()?;
-        x.show();
-        y.show();
+        x.show()?;
+        y.show()?;
         Ok(())
     }
 }

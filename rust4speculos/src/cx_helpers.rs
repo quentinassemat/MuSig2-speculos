@@ -185,3 +185,21 @@ pub fn cx_ecdomain_generator_bn(
         Ok(*p)
     }
 }
+
+pub fn cx_ecpoint_is_at_infinity(p: &bindings::cx_ecpoint_t, out: *mut bool) -> Result<(), SyscallError> {
+	let err = unsafe { bindings::cx_ecpoint_is_at_infinity(p, out) };
+    if err != 0 {
+        Err(err.into())
+    } else {
+        Ok(())
+    }
+}
+
+pub fn cx_ecpoint_is_on_curve(p: &bindings::cx_ecpoint_t, out: *mut bool) -> Result<(), SyscallError> {
+	let err = unsafe { bindings::cx_ecpoint_is_on_curve(p, out) };
+    if err != 0 {
+        Err(err.into())
+    } else {
+        Ok(())
+    }
+}

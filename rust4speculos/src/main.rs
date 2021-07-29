@@ -6,8 +6,10 @@ mod cx_helpers;
 mod data_types;
 mod utils;
 
-use core::str::from_utf8;
 use crypto_helpers::*;
+use data_types::*;
+
+use core::str::from_utf8;
 use data_types::Field;
 use nanos_sdk::bindings;
 use nanos_sdk::buttons::ButtonEvent;
@@ -96,17 +98,12 @@ fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, SyscallError> {
 fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallError> {
     // on essaye d'optimiser la place sur la stack avec les {}
     if ui::Validator::new("Add field ?").ask() {
-        unsafe {
-            match bindings::cx_bn_lock(N_BYTES, 0) {
-                bindings::CX_OK => (),
-                bindings::CX_LOCKED => return Err(SyscallError::InvalidState),
-                _ => return Err(SyscallError::Unspecified),
-            }
-        }
+        cx_bn_lock(N_BYTES, 0)?;
+
         // déclaration
         let mod_bytes: [u8; N_BYTES as usize] =
             hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
-        
+
         let mut field1_bytes = [0_u8; N_BYTES as usize];
         for i in 0..N_BYTES {
             field1_bytes[i as usize] = message[i as usize];
@@ -118,10 +115,15 @@ fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallEr
         }
 
         let field1: Field = Field::new_init(&field1_bytes)?;
+        ui::popup("field 1");
+        field1.show()?;
         let field2: Field = Field::new_init(&field2_bytes)?;
+        ui::popup("field 2");
+        field2.show()?;
         let modulo: Field = Field::new_init(&mod_bytes)?;
 
         let field3 = field1.add(field2, modulo)?;
+        cx_bn_unlock()?;
         Ok(Some(field3.bytes))
     } else {
         ui::popup("Cancelled");
@@ -134,32 +136,24 @@ fn add_point(message: &[u8]) -> Result<Option<[u8; 2 * N_BYTES as usize + 1_usiz
     if ui::Validator::new("Add point ?").ask() {
         cx_bn_lock(N_BYTES, 0)?;
 
-        let mut sum_bytes: [u8; 2 * N_BYTES as usize + 1] = [0; 2 * N_BYTES as usize + 1]; // ce qu'on cherche à export
-
-        let mut point1 = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
-        let mut point2 = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
-        let mut point_sum = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
-
-        cx_ecpoint_init(&mut point1, &message[1..33], &message[33..65])?;
-        cx_ecpoint_init(&mut point2, &message[66..98], &message[98..130])?;
+        let point1 = Point::new_init(&message[1..33], &message[33..65])?;
+        ui::popup("point 1");
+        point1.show()?;
+        let point2 = Point::new_init(&message[66..98], &message[98..130])?;
+        ui::popup("point 2");
+        point2.show()?;
 
         // on fait l'addition des deux points
-        cx_ecpoint_add(&mut point_sum, &point1, &point2)?;
+        let point3 = point1.add(point2)?;
+        ui::popup("point 3");
+        point3.show()?;
 
-        //on export on renvoie en non compressé :
+        let (x, y) = point3.coords()?;
 
-        let mut x_sum_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-        let mut y_sum_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
+        let bytes = point3.export_apdu()?;
 
-        cx_ecpoint_export(&point_sum, &mut x_sum_bytes, &mut y_sum_bytes)?;
-
-        sum_bytes[0] = 4; // on dit qu'on fait non compressé;
-        for i in 0..N_BYTES {
-            sum_bytes[1 + i as usize] = x_sum_bytes[i as usize];
-            sum_bytes[1 + i as usize + N_BYTES as usize] = y_sum_bytes[i as usize];
-        }
         cx_bn_unlock()?;
-        Ok(Some(sum_bytes))
+        Ok(Some(bytes))
     } else {
         ui::popup("Cancelled");
         Ok(None)

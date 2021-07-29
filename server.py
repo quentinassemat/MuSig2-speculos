@@ -66,7 +66,7 @@ for i in range(len(CMDS)):
                 ANSWER.append("cancelled")
             else :
                 ANSWER.append(int.from_bytes(r, 'big') % n)
-    sleep(2)
+    sleep(0.1)
 
 print(f"On obtient le résultat suivant : {ANSWER}")
 d.close()
