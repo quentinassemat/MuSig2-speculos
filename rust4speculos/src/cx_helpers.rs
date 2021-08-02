@@ -1,5 +1,6 @@
 use nanos_sdk::bindings;
 use nanos_sdk::io::SyscallError;
+use core::str::from_utf8;
 
 #[derive(Clone, Copy)]
 pub struct CxBn {
@@ -186,8 +187,11 @@ pub fn cx_ecdomain_generator_bn(
     }
 }
 
-pub fn cx_ecpoint_is_at_infinity(p: &bindings::cx_ecpoint_t, out: *mut bool) -> Result<(), SyscallError> {
-	let err = unsafe { bindings::cx_ecpoint_is_at_infinity(p, out) };
+pub fn cx_ecpoint_is_at_infinity(
+    p: &bindings::cx_ecpoint_t,
+    out: *mut bool,
+) -> Result<(), SyscallError> {
+    let err = unsafe { bindings::cx_ecpoint_is_at_infinity(p, out) };
     if err != 0 {
         Err(err.into())
     } else {
@@ -195,8 +199,11 @@ pub fn cx_ecpoint_is_at_infinity(p: &bindings::cx_ecpoint_t, out: *mut bool) -> 
     }
 }
 
-pub fn cx_ecpoint_is_on_curve(p: &bindings::cx_ecpoint_t, out: *mut bool) -> Result<(), SyscallError> {
-	let err = unsafe { bindings::cx_ecpoint_is_on_curve(p, out) };
+pub fn cx_ecpoint_is_on_curve(
+    p: &bindings::cx_ecpoint_t,
+    out: *mut bool,
+) -> Result<(), SyscallError> {
+    let err = unsafe { bindings::cx_ecpoint_is_on_curve(p, out) };
     if err != 0 {
         Err(err.into())
     } else {

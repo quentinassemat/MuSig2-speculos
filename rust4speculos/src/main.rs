@@ -1,5 +1,9 @@
 #![no_std]
 #![no_main]
+#![cfg_attr(test, no_main)]
+#![feature(custom_test_frameworks)]
+#![reexport_test_harness_main = "test_main"]
+#![test_runner(nanos_sdk::sdk_test_runner)]
 
 mod crypto_helpers;
 mod cx_helpers;
@@ -13,8 +17,10 @@ use core::str::from_utf8;
 use data_types::Field;
 use nanos_sdk::bindings;
 use nanos_sdk::buttons::ButtonEvent;
+use nanos_sdk::exit_app;
 use nanos_sdk::io;
 use nanos_sdk::io::SyscallError;
+use nanos_sdk::TestType;
 use nanos_ui::ui;
 
 use hex_literal::hex;
@@ -45,6 +51,7 @@ fn show_pubkey() {
 }
 
 #[no_mangle]
+#[cfg(not(test))]
 extern "C" fn sample_main() {
     let mut comm = io::Comm::new();
     comm.reply_ok();
@@ -215,4 +222,227 @@ fn handle_apdu(comm: &mut io::Comm, ins: Ins) -> Result<(), Reply> {
         }
     }
     Ok(())
+}
+
+// TESTS
+
+#[macro_export]
+macro_rules! assert_eq_err {
+    ($left:expr, $right:expr) => {{
+        match (&$left, &$right) {
+            (left_val, right_val) => {
+                if !(*left_val == *right_val) {
+                    nanos_sdk::debug_print("assertion failed: `(left == right)`\n");
+                    return Err(());
+                }
+            }
+        }
+    }};
+}
+
+#[cfg(test)]
+#[no_mangle]
+fn sample_main() {
+    test_main();
+    exit_app(0);
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::assert_eq_err as assert_eq;
+    use testmacro::test_item as test;
+
+    use core::str::from_utf8;
+    use data_types::Field;
+    use nanos_sdk::bindings;
+    use nanos_sdk::buttons::ButtonEvent;
+    use nanos_sdk::exit_app;
+    use nanos_sdk::io;
+    use nanos_sdk::io::SyscallError;
+    use nanos_sdk::TestType;
+    use nanos_ui::ui;
+
+    use hex_literal::hex;
+
+    #[test]
+    fn test_field_add1() {
+        cx_bn_lock(N_BYTES, 0);
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001");
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001");
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field1_bytes).unwrap();
+        let field_add = field1.add(field2, modulo).unwrap();
+        let field_add_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000002");
+        let field_add_test: Field = Field::new_init(&field_add_test_bytes).unwrap();
+
+        assert_eq!(field_add_test.bytes, field_add.bytes);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_field_add2() {
+        cx_bn_lock(N_BYTES, 0);
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364142");
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001");
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
+        let field_add = field1.add(field2, modulo).unwrap();
+        let field_add_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000002");
+        let field_add_test: Field = Field::new_init(&field_add_test_bytes).unwrap();
+
+        assert_eq!(field_add_test.bytes, field_add.bytes);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_field_mul1() {
+        cx_bn_lock(N_BYTES, 0);
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000002"); //  = 2
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000003"); // = 3
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
+        let field_mul = field1.mul(field2, modulo).unwrap();
+        let field_mul_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000006");
+        let field_mul_test: Field = Field::new_init(&field_mul_test_bytes).unwrap();
+
+        assert_eq!(field_mul_test.bytes, field_mul.bytes);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_field_mul2() {
+        cx_bn_lock(N_BYTES, 0);
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364143"); //  = 2
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000003"); // = 3
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
+        let field_mul = field1.mul(field2, modulo).unwrap();
+        let field_mul_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000006");
+        let field_mul_test: Field = Field::new_init(&field_mul_test_bytes).unwrap();
+
+        assert_eq!(field_mul_test.bytes, field_mul.bytes);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_field_pow() {
+        cx_bn_lock(N_BYTES, 0);
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364143"); //  = 2
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000003"); // = 3
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
+        let field_mul = field1.pow(field2, modulo).unwrap();
+        let field_mul_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000008");
+        let field_mul_test: Field = Field::new_init(&field_mul_test_bytes).unwrap();
+
+        assert_eq!(field_mul_test, field_mul);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_point_new_gen() {
+        cx_bn_lock(N_BYTES, 0);
+        let gen_x_bytes: [u8; N_BYTES as usize] =
+            hex!("79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let gen_y_bytes: [u8; N_BYTES as usize] =
+            hex!("483ADA77 26A3C465 5DA4FBFC 0E1108A8 FD17B448 A6855419 9C47D08F FB10D4B8"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+
+        let gen: Point = Point::new_gen().unwrap();
+        let gen_test: Point = Point::new_init(&gen_x_bytes, &gen_y_bytes).unwrap();
+
+        assert_eq!(gen, gen);
+        cx_bn_unlock(); // !!!! unlock efface la mémoire donc échanger ces deux lignes la fait une erreur
+    }
+
+    #[test]
+    fn test_point_add() {
+        cx_bn_lock(N_BYTES, 0);
+
+        let p1_x_bytes: [u8; N_BYTES as usize] =
+            hex!("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9");
+        let p1_y_bytes: [u8; N_BYTES as usize] =
+            hex!("388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672");
+        let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+
+        let p2_x_bytes: [u8; N_BYTES as usize] =
+            hex!("7d152c041ea8e1dc2191843d1fa9db55b68f88fef695e2c791d40444b365afc2");
+        let p2_y_bytes: [u8; N_BYTES as usize] =
+            hex!("56915849f52cc8f76f5fd7e4bf60db4a43bf633e1b1383f85fe89164bfadcbdb");
+        let p2: Point = Point::new_init(&p2_x_bytes, &p2_y_bytes).unwrap();
+
+        let p3_x_bytes: [u8; N_BYTES as usize] =
+            hex!("2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4");
+        let p3_y_bytes: [u8; N_BYTES as usize] =
+            hex!("d8ac222636e5e3d6d4dba9dda6c9c426f788271bab0d6840dca87d3aa6ac62d6");
+        let p3: Point = Point::new_init(&p3_x_bytes, &p3_y_bytes).unwrap();
+
+        let p3_test = p1.add(p2).unwrap();
+
+        assert_eq!(p3, p3_test);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_point_mul_scalar() {
+        cx_bn_lock(N_BYTES, 0);
+        assert_eq!(2, 3);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_point_is_at_infinity() {
+        cx_bn_lock(N_BYTES, 0);
+        assert_eq!(2, 2);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_point_is_on_curve() {
+        cx_bn_lock(N_BYTES, 0);
+        assert_eq!(2, 3);
+        cx_bn_unlock();
+    }
+
+    #[test]
+    fn test_point_export_apdu() {
+        cx_bn_lock(N_BYTES, 0);
+        assert_eq!(2, 3);
+        cx_bn_unlock();
+    }
 }

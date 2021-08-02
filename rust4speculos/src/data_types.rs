@@ -1,9 +1,13 @@
 // FICHIER QUI GÈRE L'IMPLÉMENTATION DES DIFFÉRENTS TYPES DE DONNÉES POUR WRAPPER LES UNSAFE DU C
+//pour les tests
+
 use crate::cx_helpers::*;
 use crate::utils;
 use core::str::from_utf8;
 use nanos_sdk::bindings;
+use nanos_sdk::exit_app;
 use nanos_sdk::io::SyscallError;
+use nanos_sdk::TestType;
 use nanos_ui::ui;
 
 // CONSTANTES UTILES
@@ -138,6 +142,12 @@ impl Field {
     }
 }
 
+impl PartialEq for Field {
+    fn eq(&self, other: &Self) -> bool {
+        self.bytes == other.bytes
+    }
+}
+
 pub struct Point {
     pub p: bindings::cx_ecpoint_t,
 }
@@ -172,8 +182,8 @@ impl Point {
     }
 
     pub fn new_gen() -> Result<Point, SyscallError> {
-        let mut ecpoint = bindings::cx_ecpoint_t::default();
-        let p = cx_ecdomain_generator_bn(bindings::CX_CURVE_SECP256K1, &mut ecpoint)?;
+        let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
+        let p = cx_ecdomain_generator_bn(bindings::CX_CURVE_SECP256K1, &mut p)?;
         Ok(Point { p })
     }
 
@@ -185,13 +195,46 @@ impl Point {
         }
 
         // on alloue la mémoire
-        let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
+        //debug
+        match cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1) {
+            Ok(mut p) => {
+                // on fait l'addition
+                match cx_ecpoint_add(&mut p, &self.p, &other.p) {
+                    Ok(()) => {
+                        // on renvoie le résultat
+                        Ok(Point { p })
+                    }
+                    Err(e) => {
+                        nanos_sdk::debug_print("debug add");
+                        match e {
+                            SyscallError::InvalidParameter => nanos_sdk::debug_print("inva"),
+                            SyscallError::Overflow => nanos_sdk::debug_print("ov"),
+                            SyscallError::Security => nanos_sdk::debug_print("sec"),
+                            SyscallError::InvalidCrc => nanos_sdk::debug_print("invacrc"),
+                            SyscallError::InvalidChecksum => nanos_sdk::debug_print("invachechsum"),
+                            SyscallError::InvalidCounter => nanos_sdk::debug_print("incacounter"),
+                            SyscallError::NotSupported => nanos_sdk::debug_print("not supported"),
+                            SyscallError::InvalidState => nanos_sdk::debug_print("inva state"),
+                            SyscallError::Timeout => nanos_sdk::debug_print("timeout"),
+                            SyscallError::Unspecified => nanos_sdk::debug_print("uns"),
+                            _ => nanos_sdk::debug_print("unss"),
+                        }
+                        Err(e)
+                    }
+                }
+            }
+            Err(e) => {
+                nanos_sdk::debug_print("debug alloc");
+                Err(e)
+            }
+        }
+        // let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
 
-        // on fait l'addition
-        cx_ecpoint_add(&mut p, &self.p, &other.p)?;
+        // // on fait l'addition
+        // cx_ecpoint_add(&mut p, &self.p, &other.p)?;
 
-        // on renvoie le résultat
-        Ok(Point { p })
+        // // on renvoie le résultat
+        // Ok(Point { p })
     }
 
     pub fn mul_scalar(&mut self, other: Field) -> Result<(), SyscallError> {
@@ -244,7 +287,7 @@ impl Point {
     }
 
     pub fn export_apdu(&self) -> Result<[u8; 2 * N_BYTES as usize + 1], SyscallError> {
-        let (x,y) = self.coords()?;
+        let (x, y) = self.coords()?;
         let mut bytes: [u8; 2 * N_BYTES as usize + 1] = [0; 2 * N_BYTES as usize + 1];
         bytes[0] = 4; // on dit qu'on fait non compressé;
         for i in 0..N_BYTES {
@@ -261,5 +304,13 @@ impl Point {
         x.show()?;
         y.show()?;
         Ok(())
+    }
+}
+
+impl PartialEq for Point {
+    fn eq(&self, other: &Self) -> bool {
+        let (self_x, self_y) = self.coords().unwrap();
+        let (other_x, other_y) = other.coords().unwrap();
+        (self_x == other_x) && (self_y == other_y)
     }
 }

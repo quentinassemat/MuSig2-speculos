@@ -7,6 +7,8 @@ from binascii import hexlify, unhexlify
 from time import sleep
 from tools import *
 
+print(5*G)
+
 randint1 = int.from_bytes(randbytes(4), 'big') // 2
 randint2 = int.from_bytes(randbytes(4), 'big') // 2
 rand_msg1 = hexlify(randint1.to_bytes(4, 'big')).decode()
