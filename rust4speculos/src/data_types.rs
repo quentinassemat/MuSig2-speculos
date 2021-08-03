@@ -5,9 +5,6 @@ use crate::cx_helpers::*;
 use crate::utils;
 use core::str::from_utf8;
 use nanos_sdk::bindings;
-use nanos_sdk::exit_app;
-use nanos_sdk::io::SyscallError;
-use nanos_sdk::TestType;
 use nanos_ui::ui;
 
 // CONSTANTES UTILES
@@ -198,33 +195,13 @@ impl Point {
             return Err(CxSyscallError::NotLocked);
         }
 
-        //debug
-        match cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1) {
-            Ok(mut p) => {
-                // on fait l'addition
-                match cx_ecpoint_add(&mut p, &self.p, &other.p) {
-                    Ok(()) => {
-                        // on renvoie le résultat
-                        Ok(Point { p })
-                    }
-                    Err(e) => {
-                        // nanos_sdk::debug_print("debug add\n");
-                        Err(e)
-                    }
-                }
-            }
-            Err(e) => {
-                nanos_sdk::debug_print("debug alloc");
-                Err(e)
-            }
-        }
-        // let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
+        let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
 
-        // // on fait l'addition
-        // cx_ecpoint_add(&mut p, &self.p, &other.p)?;
+        // on fait l'addition
+        cx_ecpoint_add(&mut p, &self.p, &other.p)?;
 
-        // // on renvoie le résultat
-        // Ok(Point { p })
+        // on renvoie le résultat
+        Ok(Point { p })
     }
 
     pub fn mul_scalar(&mut self, other: Field) -> Result<(), CxSyscallError> {
@@ -243,17 +220,19 @@ impl Point {
 
     pub fn is_at_infinity(&self) -> Result<bool, CxSyscallError> {
         let mut res: bool = false;
-        let mut res_ptr: *mut bool = &mut res;
+        let res_ptr: *mut bool = &mut res;
         cx_ecpoint_is_at_infinity(&self.p, res_ptr)?;
         Ok(res)
     }
 
-    pub fn is_on_curve(&self) -> Result<bool, CxSyscallError> {
-        let mut res: bool = false;
-        let mut res_ptr: *mut bool = &mut res;
-        cx_ecpoint_is_on_curve(&self.p, res_ptr)?;
-        Ok(res)
-    }
+    // PAS SUPPORTÉ PAS SPECULOS IL SEMBLE
+
+    // pub fn is_on_curve(&self) -> Result<bool, CxSyscallError> {
+    //     let mut res: bool = false;
+    //     let mut res_ptr: *mut bool = &mut res;
+    //     cx_ecpoint_is_on_curve(&self.p, res_ptr)?;
+    //     Ok(res)
+    // }
 
     // les trois getters des coordonnées
 

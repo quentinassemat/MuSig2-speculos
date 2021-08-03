@@ -1,8 +1,5 @@
 use nanos_sdk::bindings;
 use nanos_sdk::io::Reply;
-use nanos_sdk::io::SyscallError;
-
-use core::str::from_utf8;
 
 #[derive(Debug)]
 #[repr(u32)]
@@ -318,17 +315,19 @@ pub fn cx_ecpoint_is_at_infinity(
     }
 }
 
-pub fn cx_ecpoint_is_on_curve(
-    p: &bindings::cx_ecpoint_t,
-    out: *mut bool,
-) -> Result<(), CxSyscallError> {
-    let err = unsafe { bindings::cx_ecpoint_is_on_curve(p, out) };
-    if err != 0 {
-        let cx_err: CxSyscallError = err.into();
-        nanos_sdk::debug_print("err cx_ecpoint_is_on_curve\n");
-        cx_err.show();
-        Err(cx_err)
-    } else {
-        Ok(())
-    }
-}
+// PAS SUPPORTÉ PAR SPECULOS IL SEMBLE
+
+// pub fn cx_ecpoint_is_on_curve(
+//     p: &bindings::cx_ecpoint_t,
+//     out: *mut bool,
+// ) -> Result<(), CxSyscallError> {
+//     let err = unsafe { bindings::cx_ecpoint_is_on_curve(p, out) };
+//     if err != 0 {
+//         let cx_err: CxSyscallError = err.into();
+//         nanos_sdk::debug_print("err cx_ecpoint_is_on_curve\n");
+//         cx_err.show();
+//         Err(cx_err)
+//     } else {
+//         Ok(())
+//     }
+// }
