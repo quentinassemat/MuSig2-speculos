@@ -27,14 +27,14 @@ pub struct Field {
 }
 
 impl Field {
-    pub fn new() -> Result<Field, SyscallError> {
+    pub fn new() -> Result<Field, CxSyscallError> {
         // new avec init à 0
         // déclaration
         let bytes = [0u8; N_BYTES as usize];
 
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
 
         // on alloue la mémoire
@@ -44,12 +44,12 @@ impl Field {
         Ok(Field { index, bytes })
     }
 
-    pub fn new_init(init: &[u8]) -> Result<Field, SyscallError> {
+    pub fn new_init(init: &[u8]) -> Result<Field, CxSyscallError> {
         // init avec un pointeur vers un tableau de [u8 : N_BYTES = 32]
 
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
 
         // on alloue la mémoire
@@ -63,14 +63,14 @@ impl Field {
         Ok(Field { index, bytes })
     }
 
-    pub fn add(&self, other: Field, modulo: Field) -> Result<Field, SyscallError> {
+    pub fn add(&self, other: Field, modulo: Field) -> Result<Field, CxSyscallError> {
         // addition de self et other avec le modulo ( qui sera l'ordre de la courbe SECP256K1)
         // déclaration
         let mut bytes = [0u8; N_BYTES as usize];
 
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
 
         // on alloue la mémoire pour le resultat
@@ -86,14 +86,14 @@ impl Field {
         Ok(Field { index, bytes })
     }
 
-    pub fn mul(&self, other: Field, modulo: Field) -> Result<Field, SyscallError> {
+    pub fn mul(&self, other: Field, modulo: Field) -> Result<Field, CxSyscallError> {
         // multiplication de self et other avec le modulo ( qui sera l'ordre de la courbe SECP256K1)
         // déclaration
         let mut bytes = [0u8; N_BYTES as usize];
 
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
 
         // on alloue la mémoire pour le resultat
@@ -109,14 +109,14 @@ impl Field {
         Ok(Field { index, bytes })
     }
 
-    pub fn pow(&self, exp: Field, modulo: Field) -> Result<Field, SyscallError> {
+    pub fn pow(&self, exp: Field, modulo: Field) -> Result<Field, CxSyscallError> {
         // calcul de self^pow mod modulo. Petit théorème de Fermat assure que ça sert à rien de mettre des exposants plus grand que le mod
         // déclaration
         let mut bytes = [0u8; N_BYTES as usize];
 
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
 
         // on alloue la mémoire pour le resultat
@@ -134,9 +134,9 @@ impl Field {
 
     //affichage
 
-    pub fn show(&self) -> Result<(), SyscallError> {
-        let hex = utils::to_hex(&self.bytes).map_err(|_| SyscallError::Overflow)?;
-        let m = from_utf8(&hex).map_err(|_| SyscallError::InvalidParameter)?;
+    pub fn show(&self) -> Result<(), CxSyscallError> {
+        let hex = utils::to_hex(&self.bytes).map_err(|_| CxSyscallError::Overflow)?;
+        let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
         ui::MessageScroller::new(m).event_loop();
         Ok(())
     }
@@ -153,11 +153,12 @@ pub struct Point {
 }
 
 impl Point {
-    pub fn new() -> Result<Point, SyscallError> {
+    pub fn new() -> Result<Point, CxSyscallError> {
         // new sans init
+
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
 
         // on alloue la mémoire
@@ -167,12 +168,14 @@ impl Point {
         Ok(Point { p })
     }
 
-    pub fn new_init(x: &[u8], y: &[u8]) -> Result<Point, SyscallError> {
+    pub fn new_init(x: &[u8], y: &[u8]) -> Result<Point, CxSyscallError> {
         // new avec init
+
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
+
         // on alloue la mémoire
         let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
         // on init
@@ -181,20 +184,20 @@ impl Point {
         Ok(Point { p })
     }
 
-    pub fn new_gen() -> Result<Point, SyscallError> {
+    pub fn new_gen() -> Result<Point, CxSyscallError> {
         let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
         let p = cx_ecdomain_generator_bn(bindings::CX_CURVE_SECP256K1, &mut p)?;
         Ok(Point { p })
     }
 
-    pub fn add(&self, other: Point) -> Result<Point, SyscallError> {
+    pub fn add(&self, other: Point) -> Result<Point, CxSyscallError> {
         // addition de self et other avec l'addition de la courbe elliptique
+
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
 
-        // on alloue la mémoire
         //debug
         match cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1) {
             Ok(mut p) => {
@@ -205,20 +208,7 @@ impl Point {
                         Ok(Point { p })
                     }
                     Err(e) => {
-                        nanos_sdk::debug_print("debug add");
-                        match e {
-                            SyscallError::InvalidParameter => nanos_sdk::debug_print("inva"),
-                            SyscallError::Overflow => nanos_sdk::debug_print("ov"),
-                            SyscallError::Security => nanos_sdk::debug_print("sec"),
-                            SyscallError::InvalidCrc => nanos_sdk::debug_print("invacrc"),
-                            SyscallError::InvalidChecksum => nanos_sdk::debug_print("invachechsum"),
-                            SyscallError::InvalidCounter => nanos_sdk::debug_print("incacounter"),
-                            SyscallError::NotSupported => nanos_sdk::debug_print("not supported"),
-                            SyscallError::InvalidState => nanos_sdk::debug_print("inva state"),
-                            SyscallError::Timeout => nanos_sdk::debug_print("timeout"),
-                            SyscallError::Unspecified => nanos_sdk::debug_print("uns"),
-                            _ => nanos_sdk::debug_print("unss"),
-                        }
+                        // nanos_sdk::debug_print("debug add\n");
                         Err(e)
                     }
                 }
@@ -237,11 +227,12 @@ impl Point {
         // Ok(Point { p })
     }
 
-    pub fn mul_scalar(&mut self, other: Field) -> Result<(), SyscallError> {
+    pub fn mul_scalar(&mut self, other: Field) -> Result<(), CxSyscallError> {
         // multiplication de self par other (Field) (!! modifie self !!)
+
         // on check si c'est lock
         if !cx_bn_is_locked() {
-            return Err(SyscallError::InvalidState);
+            return Err(CxSyscallError::NotLocked);
         }
 
         // on fait la multiplication
@@ -250,14 +241,14 @@ impl Point {
 
     //
 
-    pub fn is_at_infinity(&self) -> Result<bool, SyscallError> {
+    pub fn is_at_infinity(&self) -> Result<bool, CxSyscallError> {
         let mut res: bool = false;
         let mut res_ptr: *mut bool = &mut res;
         cx_ecpoint_is_at_infinity(&self.p, res_ptr)?;
         Ok(res)
     }
 
-    pub fn is_on_curve(&self) -> Result<bool, SyscallError> {
+    pub fn is_on_curve(&self) -> Result<bool, CxSyscallError> {
         let mut res: bool = false;
         let mut res_ptr: *mut bool = &mut res;
         cx_ecpoint_is_on_curve(&self.p, res_ptr)?;
@@ -266,7 +257,7 @@ impl Point {
 
     // les trois getters des coordonnées
 
-    pub fn coords(&self) -> Result<(Field, Field), SyscallError> {
+    pub fn coords(&self) -> Result<(Field, Field), CxSyscallError> {
         let mut x_bytes = [0_u8; N_BYTES as usize];
         let mut y_bytes = [0_u8; N_BYTES as usize];
         cx_ecpoint_export(&self.p, &mut x_bytes, &mut y_bytes)?;
@@ -276,17 +267,17 @@ impl Point {
         Ok((x, y))
     }
 
-    pub fn x_affine(&self) -> Result<Field, SyscallError> {
+    pub fn x_affine(&self) -> Result<Field, CxSyscallError> {
         let (x, _y) = self.coords()?;
         Ok(x)
     }
 
-    pub fn y_affine(&self) -> Result<Field, SyscallError> {
+    pub fn y_affine(&self) -> Result<Field, CxSyscallError> {
         let (_x, y) = self.coords()?;
         Ok(y)
     }
 
-    pub fn export_apdu(&self) -> Result<[u8; 2 * N_BYTES as usize + 1], SyscallError> {
+    pub fn export_apdu(&self) -> Result<[u8; 2 * N_BYTES as usize + 1], CxSyscallError> {
         let (x, y) = self.coords()?;
         let mut bytes: [u8; 2 * N_BYTES as usize + 1] = [0; 2 * N_BYTES as usize + 1];
         bytes[0] = 4; // on dit qu'on fait non compressé;
@@ -299,7 +290,7 @@ impl Point {
 
     // affichage
 
-    pub fn show(&self) -> Result<(), SyscallError> {
+    pub fn show(&self) -> Result<(), CxSyscallError> {
         let (x, y) = self.coords()?;
         x.show()?;
         y.show()?;

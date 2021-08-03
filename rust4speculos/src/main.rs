@@ -14,11 +14,12 @@ use crypto_helpers::*;
 use data_types::*;
 
 use core::str::from_utf8;
-use data_types::Field;
+
 use nanos_sdk::bindings;
 use nanos_sdk::buttons::ButtonEvent;
 use nanos_sdk::exit_app;
 use nanos_sdk::io;
+use nanos_sdk::io::Reply;
 use nanos_sdk::io::SyscallError;
 use nanos_sdk::TestType;
 use nanos_ui::ui;
@@ -75,20 +76,20 @@ extern "C" fn sample_main() {
     }
 }
 
-fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, SyscallError> {
+fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, CxSyscallError> {
     if ui::Validator::new("Add int ?").ask() {
         let int1_bytes: [u8; 4] = [message[0], message[1], message[2], message[3]];
         {
-            let hex = utils::to_hex(&int1_bytes).map_err(|_| SyscallError::Overflow)?;
-            let m = from_utf8(&hex).map_err(|_| SyscallError::InvalidParameter)?;
+            let hex = utils::to_hex(&int1_bytes).map_err(|_| CxSyscallError::Overflow)?;
+            let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
             ui::popup("Int 1");
             ui::popup(m);
         }
 
         let int2_bytes: [u8; 4] = [message[4], message[5], message[6], message[7]];
         {
-            let hex = utils::to_hex(&int2_bytes).map_err(|_| SyscallError::Overflow)?;
-            let m = from_utf8(&hex).map_err(|_| SyscallError::InvalidParameter)?;
+            let hex = utils::to_hex(&int2_bytes).map_err(|_| CxSyscallError::Overflow)?;
+            let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
             ui::popup("Int 2");
             ui::popup(m);
         }
@@ -102,7 +103,7 @@ fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, SyscallError> {
     }
 }
 
-fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallError> {
+fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, CxSyscallError> {
     // on essaye d'optimiser la place sur la stack avec les {}
     if ui::Validator::new("Add field ?").ask() {
         cx_bn_lock(N_BYTES, 0)?;
@@ -139,7 +140,9 @@ fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallEr
 }
 
 use crate::cx_helpers::*;
-fn add_point(message: &[u8]) -> Result<Option<[u8; 2 * N_BYTES as usize + 1_usize]>, SyscallError> {
+fn add_point(
+    message: &[u8],
+) -> Result<Option<[u8; 2 * N_BYTES as usize + 1_usize]>, CxSyscallError> {
     if ui::Validator::new("Add point ?").ask() {
         cx_bn_lock(N_BYTES, 0)?;
 
@@ -191,8 +194,6 @@ impl From<u8> for Ins {
     }
 }
 
-use nanos_sdk::io::Reply;
-
 fn handle_apdu(comm: &mut io::Comm, ins: Ins) -> Result<(), Reply> {
     if comm.rx == 0 {
         return Err(io::StatusWords::NothingReceived.into());
@@ -233,6 +234,7 @@ macro_rules! assert_eq_err {
             (left_val, right_val) => {
                 if !(*left_val == *right_val) {
                     nanos_sdk::debug_print("assertion failed: `(left == right)`\n");
+                    cx_bn_unlock(); 
                     return Err(());
                 }
             }
@@ -412,10 +414,15 @@ mod test {
             hex!("d8ac222636e5e3d6d4dba9dda6c9c426f788271bab0d6840dca87d3aa6ac62d6");
         let p3: Point = Point::new_init(&p3_x_bytes, &p3_y_bytes).unwrap();
 
-        let p3_test = p1.add(p2).unwrap();
-
-        assert_eq!(p3, p3_test);
-        cx_bn_unlock();
+        match p1.add(p2) {
+            Err(e) => {
+                nanos_sdk::debug_print("err match");
+                e.show();
+            }
+            Ok(p3_test) => assert_eq!(p3, p3_test),
+        }
+        
+        cx_bn_unlock(); 
     }
 
     #[test]
