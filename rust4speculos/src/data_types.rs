@@ -314,7 +314,7 @@ impl Hash {
     pub fn new() -> Result<Hash, CxSyscallError> {
         let mut h : bindings::cx_hash_t = bindings::cx_hash_t::default();
         let err = unsafe {
-            bindings::cx_hash_init(&mut h, bindings::CX_SHA256)
+            bindings::cx_hash_init(&mut h as *mut bindings::cx_hash_t, bindings::CX_SHA256)
         };
         if err != 0 {
             let cx_err: CxSyscallError = err.into();
@@ -343,7 +343,7 @@ impl Hash {
         let err = unsafe { bindings::cx_hash_final(&mut self.h, digest.as_mut_ptr()) };
         if err != 0 {
             let cx_err: CxSyscallError = err.into();
-            nanos_sdk::debug_print("err cx_hash_update\n");
+            nanos_sdk::debug_print("err cx_hash_digest\n");
             cx_err.show();
             Err(cx_err)
         } else {
