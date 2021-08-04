@@ -1,6 +1,8 @@
 use nanos_sdk::bindings;
 use nanos_sdk::io::Reply;
 
+// WRAPPERS AUTOUR DES MESSAGES D'ERREURS
+
 #[derive(Debug)]
 #[repr(u32)]
 pub enum CxSyscallError {
@@ -70,6 +72,8 @@ impl CxSyscallError {
         }
     }
 }
+
+// WRAPPERS AUTOUR DES BIG NUMBERS DU SDK
 
 #[derive(Clone, Copy)]
 pub struct CxBn {
@@ -184,6 +188,20 @@ pub fn cx_bn_mod_pow_bn(r: CxBn, a: CxBn, b: CxBn, n: CxBn) -> Result<(), CxSysc
         Ok(())
     }
 }
+
+pub fn cx_bn_rand(x: CxBn) -> Result<(), CxSyscallError> {
+    let err = unsafe { bindings::cx_bn_rand(x.x) };
+    if err != 0 {
+        let cx_err: CxSyscallError = err.into();
+        nanos_sdk::debug_print("err cx_bn_rand\n");
+        cx_err.show();
+        Err(cx_err)
+    } else {
+        Ok(())
+    }
+}
+
+// WRAPPERS AUTOUR DES EC POINT DU SDK
 
 pub fn cx_ecpoint_alloc(
     cv: bindings::cx_curve_t,
@@ -325,6 +343,48 @@ pub fn cx_ecpoint_is_at_infinity(
 //     if err != 0 {
 //         let cx_err: CxSyscallError = err.into();
 //         nanos_sdk::debug_print("err cx_ecpoint_is_on_curve\n");
+//         cx_err.show();
+//         Err(cx_err)
+//     } else {
+//         Ok(())
+//     }
+// }
+
+
+// // WRAPPERS AUTOUR DES FONCTIONS DE HASH
+
+// #[derive(Clone, Copy)]
+// pub struct CxHash {
+//     pub x: bindings::cx_hash_t,
+// }
+
+// impl CxHash {
+//     pub fn new() -> CxHash {
+//         let h : bindings::cx_hash_t = bindings::cx_hash_t::default();
+//         let err = unsafe {
+//             bindings::cx_hash_init(&h, bindings::CX_SHA256);
+//         };
+//         CxHash { h }
+//     }
+// }
+
+// pub fn cx_hash_update(hash: CxHash, in: &[u8], in_len: usize) -> Result<(), CxSyscallError> {
+//     let err = unsafe { bindings::cx_hash_update(&hash, in.as_ptr(), in_len) };
+//     if err != 0 {
+//         let cx_err: CxSyscallError = err.into();
+//         nanos_sdk::debug_print("err cx_hash_update\n");
+//         cx_err.show();
+//         Err(cx_err)
+//     } else {
+//         Ok(())
+//     }
+// }
+
+// pub fn cx_hash_final(hash: CxHash, digest: mut &[u8]) -> Result<(), CxSyscallError> {
+//     let err = unsafe { bindings::cx_hash_final(&hash, digest.as_mut_ptr()) };
+//     if err != 0 {
+//         let cx_err: CxSyscallError = err.into();
+//         nanos_sdk::debug_print("err cx_hash_update\n");
 //         cx_err.show();
 //         Err(cx_err)
 //     } else {

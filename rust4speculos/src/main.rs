@@ -155,8 +155,6 @@ fn add_point(
         ui::popup("point 3");
         point3.show()?;
 
-        let (x, y) = point3.coords()?;
-
         let bytes = point3.export_apdu()?;
 
         cx_bn_unlock()?;
@@ -267,7 +265,7 @@ mod test {
         let field2_bytes: [u8; N_BYTES as usize] =
             hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001");
         let field1: Field = Field::new_init(&field1_bytes).unwrap();
-        let field2: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
         let field_add = field1.add(field2, modulo).unwrap();
         let field_add_test_bytes: [u8; N_BYTES as usize] =
             hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000002");
@@ -366,6 +364,19 @@ mod test {
         assert_eq!(field_mul_test, field_mul);
         cx_bn_unlock().unwrap();
     }
+
+    //test juste pour voir sur l'ui que le random a l'air de bien marcher... pas un vrai test
+
+    // #[test]
+    // fn test_show_rand() {
+    //     cx_bn_lock(N_BYTES, 0).unwrap();
+
+    //     let rand: Field = Field::new_rand().unwrap();
+    //     rand.show().unwrap();
+
+    //     assert_eq!(0, 0);
+    //     cx_bn_unlock().unwrap();
+    // }
 
     #[test]
     fn test_point_new_gen() {
@@ -467,6 +478,23 @@ mod test {
         let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
 
         assert_eq!(false, p1.is_at_infinity().unwrap());
+        cx_bn_unlock().unwrap();
+    }
+
+    #[test]
+    fn test_hash() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+
+        let mut hash = Hash::new().unwrap();
+        let test: [u8; N_BYTES as usize] = hex!("132f39a98c31baaddba6525f5d43f2954472097fa15265f45130bfdb70e51def"); // résultat censé être obtenu
+        let gen: Point = Point::new_gen().unwrap();
+        let x: Field = gen.x_affine().unwrap();
+        let bytes = x.bytes;
+        let test2: [u8; 2] = [2,3];
+        hash.update(&test2, 2).unwrap();
+        let digest = hash.digest().unwrap();
+        
+        assert_eq!(digest, test);
         cx_bn_unlock().unwrap();
     }
 }
