@@ -251,10 +251,7 @@ mod test {
     use crate::assert_eq_err as assert_eq;
     use testmacro::test_item as test;
 
-    use core::str::from_utf8;
     use data_types::Field;
-    use nanos_sdk::io::SyscallError;
-    use nanos_sdk::TestType;
 
     use hex_literal::hex;
 
