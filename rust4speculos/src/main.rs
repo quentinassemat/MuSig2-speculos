@@ -1,18 +1,27 @@
 #![no_std]
 #![no_main]
+#![cfg_attr(test, main)]
+#![feature(custom_test_frameworks)]
+#![reexport_test_harness_main = "test_main"]
+#![test_runner(nanos_sdk::sdk_test_runner)]
 
 mod crypto_helpers;
-mod utils;
+mod cx_helpers;
 mod data_types;
+mod utils;
 
-use core::str::from_utf8;
 use crypto_helpers::*;
 use data_types::*;
-use nanos_sdk::bindings;
-use nanos_sdk::buttons::ButtonEvent;
+
+use nanos_sdk::exit_app;
 use nanos_sdk::io;
-use nanos_sdk::io::SyscallError;
+use nanos_sdk::io::Reply;
+use nanos_sdk::TestType;
 use nanos_ui::ui;
+
+use core::str::from_utf8;
+
+use hex_literal::hex;
 
 pub const N_BYTES: u32 = 32;
 
@@ -39,28 +48,8 @@ fn show_pubkey() {
     }
 }
 
-/// Basic nested menu. Will be subject
-/// to simplifications in the future.
-#[allow(clippy::needless_borrow)]
-fn menu_example() {
-    loop {
-        match ui::Menu::new(&[&"PubKey", &"Infos", &"Back", &"Exit App"]).show() {
-            0 => show_pubkey(),
-            1 => loop {
-                match ui::Menu::new(&[&"Copyright", &"Authors", &"Back"]).show() {
-                    0 => ui::popup("2020 Ledger"),
-                    1 => ui::popup("???"),
-                    _ => break,
-                }
-            },
-            2 => return,
-            3 => nanos_sdk::exit_app(0),
-            _ => (),
-        }
-    }
-}
-
 #[no_mangle]
+#[cfg(not(test))]
 extern "C" fn sample_main() {
     let mut comm = io::Comm::new();
     comm.reply_ok();
@@ -84,30 +73,20 @@ extern "C" fn sample_main() {
     }
 }
 
-fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, SyscallError> {
+fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, CxSyscallError> {
     if ui::Validator::new("Add int ?").ask() {
-        let mut int1_bytes: [u8; 4] = [0; 4];
-        int1_bytes[0] = message[0];
-        int1_bytes[1] = message[1];
-        int1_bytes[2] = message[2];
-        int1_bytes[3] = message[3];
-
+        let int1_bytes: [u8; 4] = [message[0], message[1], message[2], message[3]];
         {
-            let hex = utils::to_hex(&message[0..4]).map_err(|_| SyscallError::Overflow)?;
-            let m = from_utf8(&hex).map_err(|_| SyscallError::InvalidParameter)?;
+            let hex = utils::to_hex(&int1_bytes).map_err(|_| CxSyscallError::Overflow)?;
+            let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
             ui::popup("Int 1");
             ui::popup(m);
         }
 
-        let mut int2_bytes: [u8; 4] = [0; 4];
-        int2_bytes[0] = message[4];
-        int2_bytes[1] = message[5];
-        int2_bytes[2] = message[6];
-        int2_bytes[3] = message[7];
-
+        let int2_bytes: [u8; 4] = [message[4], message[5], message[6], message[7]];
         {
-            let hex = utils::to_hex(&message[4..8]).map_err(|_| SyscallError::Overflow)?;
-            let m = from_utf8(&hex).map_err(|_| SyscallError::InvalidParameter)?;
+            let hex = utils::to_hex(&int2_bytes).map_err(|_| CxSyscallError::Overflow)?;
+            let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
             ui::popup("Int 2");
             ui::popup(m);
         }
@@ -121,31 +100,35 @@ fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, SyscallError> {
     }
 }
 
-fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallError> {
+fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, CxSyscallError> {
     // on essaye d'optimiser la place sur la stack avec les {}
     if ui::Validator::new("Add field ?").ask() {
-        unsafe {
-            match bindings::cx_bn_lock(N_BYTES, 0) {
-                bindings::CX_OK => (),
-                bindings::CX_LOCKED => return Err(SyscallError::InvalidState),
-                _ => return Err(SyscallError::Unspecified),
-            }
-        }
+        cx_bn_lock(N_BYTES, 0)?;
+
         // déclaration
-        let mut mod_bytes: [u8; N_BYTES as usize] = hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
-        let mod_bytes_ptr: *mut u8 = mod_bytes.as_mut_ptr();
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
 
         let mut field1_bytes = [0_u8; N_BYTES as usize];
-        let field1_bytes_ptr = field1_bytes.as_mut_ptr();
+        for i in 0..N_BYTES {
+            field1_bytes[i as usize] = message[i as usize];
+        }
 
         let mut field2_bytes = [0_u8; N_BYTES as usize];
-        let field2_bytes_ptr = field2_bytes.as_mut_ptr();
+        for i in 0..N_BYTES {
+            field2_bytes[i as usize] = message[i as usize + N_BYTES as usize];
+        }
 
-        let field1: Field = Field::new_init(field1_bytes_ptr)?;
-        let field2: Field = Field::new_init(field2_bytes_ptr)?;
-        let modulo: Field = Field::new_init(mod_bytes_ptr)?;
+        let field1: Field = Field::new_init(&field1_bytes)?;
+        ui::popup("field 1");
+        field1.show()?;
+        let field2: Field = Field::new_init(&field2_bytes)?;
+        ui::popup("field 2");
+        field2.show()?;
+        let modulo: Field = Field::new_init(&mod_bytes)?;
 
         let field3 = field1.add(field2, modulo)?;
+        cx_bn_unlock()?;
         Ok(Some(field3.bytes))
     } else {
         ui::popup("Cancelled");
@@ -153,138 +136,31 @@ fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, SyscallEr
     }
 }
 
-fn add_point(message: &[u8]) -> Result<Option<[u8; 2 * N_BYTES as usize + 1_usize]>, SyscallError> {
+use crate::cx_helpers::*;
+fn add_point(
+    message: &[u8],
+) -> Result<Option<[u8; 2 * N_BYTES as usize + 1_usize]>, CxSyscallError> {
     if ui::Validator::new("Add point ?").ask() {
-        unsafe {
-            match bindings::cx_bn_lock(N_BYTES, 0) {
-                bindings::CX_OK => (),
-                bindings::CX_LOCKED => return Err(SyscallError::InvalidState),
-                _ => return Err(SyscallError::Unspecified),
-            }
-        }
+        cx_bn_lock(N_BYTES, 0)?;
 
-        let mut sum_bytes: [u8; 2 * N_BYTES as usize + 1] = [0; 2 * N_BYTES as usize + 1]; // ce qu'on cherche à export
+        let point1 = Point::new_init(&message[1..33], &message[33..65])?;
+        ui::popup("point 1");
+        point1.show()?;
+        let point2 = Point::new_init(&message[66..98], &message[98..130])?;
+        ui::popup("point 2");
+        point2.show()?;
 
-        unsafe {
-            let mut point1 = bindings::cx_ecpoint_t::default();
-            match bindings::cx_ecpoint_alloc(&mut point1, bindings::CX_CURVE_SECP256K1) {
-                bindings::CX_OK => (),
-                bindings::CX_EC_INVALID_CURVE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
+        // on fait l'addition des deux points
+        let point3 = point1.add(point2)?;
+        ui::popup("point 3");
+        point3.show()?;
 
-            let mut point2 = bindings::cx_ecpoint_t::default();
-            match bindings::cx_ecpoint_alloc(&mut point2, bindings::CX_CURVE_SECP256K1) {
-                bindings::CX_OK => (),
-                bindings::CX_EC_INVALID_CURVE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
+        let (x, y) = point3.coords()?;
 
-            let mut point_sum = bindings::cx_ecpoint_t::default();
-            match bindings::cx_ecpoint_alloc(&mut point_sum, bindings::CX_CURVE_SECP256K1) {
-                bindings::CX_OK => (),
-                bindings::CX_EC_INVALID_CURVE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
+        let bytes = point3.export_apdu()?;
 
-            let mut x_point1_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            for i in 0..N_BYTES {
-                x_point1_bytes[i as usize] = message[1 + i as usize];
-            }
-
-            let mut y_point1_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            for i in 0..N_BYTES {
-                y_point1_bytes[i as usize] = message[1 + N_BYTES as usize + i as usize];
-            }
-
-            let point1_ptr: *mut bindings::cx_ecpoint_t = &mut point1;
-            bindings::cx_ecpoint_init(
-                point1_ptr,
-                x_point1_bytes.as_ptr(),
-                N_BYTES,
-                y_point1_bytes.as_ptr(),
-                N_BYTES,
-            );
-
-            let mut x_point2_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            for i in 0..N_BYTES {
-                x_point2_bytes[i as usize] = message[2 + i as usize + 2 * N_BYTES as usize];
-            }
-
-            let mut y_point2_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            for i in 0..N_BYTES {
-                y_point2_bytes[i as usize] = message[2 + 3 * N_BYTES as usize + i as usize];
-            }
-
-            let point2_ptr: *mut bindings::cx_ecpoint_t = &mut point2;
-            bindings::cx_ecpoint_init(
-                point2_ptr,
-                x_point2_bytes.as_ptr(),
-                N_BYTES,
-                y_point2_bytes.as_ptr(),
-                N_BYTES,
-            );
-
-            let point_sum_ptr: *mut bindings::cx_ecpoint_t = &mut point_sum;
-            let point1_ptr_copy = point1_ptr;
-            let point2_ptr_copy = point2_ptr;
-
-            // on fait l'addition des deux points
-
-            match bindings::cx_ecpoint_add(point_sum_ptr, point1_ptr_copy, point2_ptr_copy) {
-                bindings::CX_OK => (),
-                bindings::CX_EC_INVALID_CURVE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_EC_INVALID_POINT => return Err(SyscallError::InvalidParameter),
-                bindings::CX_EC_INFINITE_POINT => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
-
-            //on export on renvoie en non compressé :
-
-            let mut x_sum_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-            let mut y_sum_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-
-            match bindings::cx_ecpoint_export(
-                point_sum_ptr,
-                x_sum_bytes.as_mut_ptr(),
-                N_BYTES,
-                y_sum_bytes.as_mut_ptr(),
-                N_BYTES,
-            ) {
-                bindings::CX_OK => (),
-                bindings::CX_INVALID_PARAMETER_VALUE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_INVALID_PARAMETER_SIZE => return Err(SyscallError::InvalidParameter),
-                bindings::CX_INVALID_PARAMETER => return Err(SyscallError::InvalidParameter),
-                bindings::CX_MEMORY_FULL => return Err(SyscallError::Overflow),
-                _ => return Err(SyscallError::Unspecified),
-            }
-
-            sum_bytes[0] = 4; // on dit qu'on fait non compressé;
-            for i in 0..N_BYTES {
-                sum_bytes[1 + i as usize] = x_sum_bytes[i as usize];
-                sum_bytes[1 + i as usize + N_BYTES as usize] = y_sum_bytes[i as usize];
-            }
-        }
-        unsafe {
-            match bindings::cx_bn_unlock() {
-                bindings::CX_OK => (),
-                bindings::CX_NOT_LOCKED => return Err(SyscallError::InvalidState),
-                _ => return Err(SyscallError::Unspecified),
-            }
-        }
-        Ok(Some(sum_bytes))
+        cx_bn_unlock()?;
+        Ok(Some(bytes))
     } else {
         ui::popup("Cancelled");
         Ok(None)
@@ -297,7 +173,6 @@ enum Ins {
     RecInt,
     RecField,
     RecPoint,
-    Menu,
     ShowPrivateKey,
     Exit,
 }
@@ -306,7 +181,6 @@ impl From<u8> for Ins {
     fn from(ins: u8) -> Ins {
         match ins {
             1 => Ins::GetPubkey,
-            2 => Ins::Menu,
             3 => Ins::RecInt,
             4 => Ins::RecField,
             5 => Ins::RecPoint,
@@ -317,8 +191,6 @@ impl From<u8> for Ins {
     }
 }
 
-use nanos_sdk::io::Reply;
-
 fn handle_apdu(comm: &mut io::Comm, ins: Ins) -> Result<(), Reply> {
     if comm.rx == 0 {
         return Err(io::StatusWords::NothingReceived.into());
@@ -326,7 +198,6 @@ fn handle_apdu(comm: &mut io::Comm, ins: Ins) -> Result<(), Reply> {
 
     match ins {
         Ins::GetPubkey => comm.append(&get_pubkey()?.W),
-        Ins::Menu => menu_example(),
         Ins::ShowPrivateKey => comm.append(&bip32_derive_secp256k1(&BIP32_PATH)?),
         Ins::Exit => nanos_sdk::exit_app(0),
         Ins::RecInt => {
@@ -350,3 +221,283 @@ fn handle_apdu(comm: &mut io::Comm, ins: Ins) -> Result<(), Reply> {
     }
     Ok(())
 }
+
+// TESTS
+
+#[macro_export]
+macro_rules! assert_eq_err {
+    ($left:expr, $right:expr) => {{
+        match (&$left, &$right) {
+            (left_val, right_val) => {
+                if !(*left_val == *right_val) {
+                    nanos_sdk::debug_print("assertion failed: `(left == right)`\n");
+                    return Err(());
+                }
+            }
+        }
+    }};
+}
+
+#[cfg(test)]
+#[no_mangle]
+fn sample_main() {
+    test_main();
+    exit_app(0);
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::assert_eq_err as assert_eq;
+    use testmacro::test_item as test;
+
+    use data_types::Field;
+
+    use hex_literal::hex;
+
+    #[test]
+    fn test_field_add1() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001");
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001");
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field1_bytes).unwrap();
+        let field_add = field1.add(field2, modulo).unwrap();
+        let field_add_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000002");
+        let field_add_test: Field = Field::new_init(&field_add_test_bytes).unwrap();
+
+        assert_eq!(field_add_test.bytes, field_add.bytes);
+        cx_bn_unlock().unwrap();
+    }
+
+    #[test]
+    fn test_field_add2() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364142");
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001");
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
+        let field_add = field1.add(field2, modulo).unwrap();
+        let field_add_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000002");
+        let field_add_test: Field = Field::new_init(&field_add_test_bytes).unwrap();
+
+        assert_eq!(field_add_test.bytes, field_add.bytes);
+        cx_bn_unlock().unwrap();
+    }
+
+    #[test]
+    fn test_field_mul1() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000002"); //  = 2
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000003"); // = 3
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
+        let field_mul = field1.mul(field2, modulo).unwrap();
+        let field_mul_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000006");
+        let field_mul_test: Field = Field::new_init(&field_mul_test_bytes).unwrap();
+
+        assert_eq!(field_mul_test.bytes, field_mul.bytes);
+        cx_bn_unlock().unwrap();
+    }
+
+    #[test]
+    fn test_field_mul2() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364143"); //  = 2
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000003"); // = 3
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
+        let field_mul = field1.mul(field2, modulo).unwrap();
+        let field_mul_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000006");
+        let field_mul_test: Field = Field::new_init(&field_mul_test_bytes).unwrap();
+
+        assert_eq!(field_mul_test.bytes, field_mul.bytes);
+        cx_bn_unlock().unwrap();
+    }
+
+    #[test]
+    fn test_field_pow() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes).unwrap();
+
+        let field1_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364143"); //  = 2
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+
+        let field2_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000003"); // = 3
+        let field2: Field = Field::new_init(&field2_bytes).unwrap();
+
+        let field_mul = field1.pow(field2, modulo).unwrap();
+        let field_mul_test_bytes: [u8; N_BYTES as usize] =
+            hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000008");
+        let field_mul_test: Field = Field::new_init(&field_mul_test_bytes).unwrap();
+
+        assert_eq!(field_mul_test, field_mul);
+        cx_bn_unlock().unwrap();
+    }
+
+    #[test]
+    fn test_point_new_gen() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+        let gen_x_bytes: [u8; N_BYTES as usize] =
+            hex!("79BE667E F9DCBBAC 55A06295 CE870B07 029BFCDB 2DCE28D9 59F2815B 16F81798"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let gen_y_bytes: [u8; N_BYTES as usize] =
+            hex!("483ADA77 26A3C465 5DA4FBFC 0E1108A8 FD17B448 A6855419 9C47D08F FB10D4B8"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+
+        let gen: Point = Point::new_gen().unwrap();
+        let gen_test: Point = Point::new_init(&gen_x_bytes, &gen_y_bytes).unwrap();
+
+        assert_eq!(gen, gen_test);
+        cx_bn_unlock().unwrap(); // !!!! unlock efface la mémoire donc échanger ces deux lignes la fait une erreur
+    }
+
+    #[test]
+    fn test_point_add() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+
+        // 2 * G
+        let p1_x_bytes: [u8; N_BYTES as usize] =
+            hex!("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5");
+        let p1_y_bytes: [u8; N_BYTES as usize] =
+            hex!("1ae168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52a");
+        let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+
+        // 3 * G
+        let p2_x_bytes: [u8; N_BYTES as usize] =
+            hex!("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9");
+        let p2_y_bytes: [u8; N_BYTES as usize] =
+            hex!("388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672");
+        let p2: Point = Point::new_init(&p2_x_bytes, &p2_y_bytes).unwrap();
+
+        // 5 * G
+        let p3_x_bytes: [u8; N_BYTES as usize] =
+            hex!("2f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4");
+        let p3_y_bytes: [u8; N_BYTES as usize] =
+            hex!("d8ac222636e5e3d6d4dba9dda6c9c426f788271bab0d6840dca87d3aa6ac62d6");
+        let p3: Point = Point::new_init(&p3_x_bytes, &p3_y_bytes).unwrap();
+
+        let p3_test = p1.add(p2).unwrap();
+        assert_eq!(p3,p3_test);
+        cx_bn_unlock().unwrap();
+    }
+
+    #[test]
+    fn test_point_mul_scalar() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+
+        let mut gen: Point = Point::new_gen().unwrap(); // mut car mul_scalar change le Point
+
+        // 2 * G
+        let p1_x_bytes: [u8; N_BYTES as usize] =
+            hex!("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5");
+        let p1_y_bytes: [u8; N_BYTES as usize] =
+            hex!("1ae168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52a");
+        let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+
+        // 2
+        let field1_bytes: [u8; N_BYTES as usize] =
+        hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364143"); //  = 2
+        let field1: Field = Field::new_init(&field1_bytes).unwrap();
+
+        gen.mul_scalar(field1).unwrap();
+
+        assert_eq!(gen, p1);
+        cx_bn_unlock().unwrap();
+    }
+
+    #[test]
+    fn test_point_export_apdu() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+
+        // 2 * G
+        let p1_x_bytes: [u8; N_BYTES as usize] =
+            hex!("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5");
+        let p1_y_bytes: [u8; N_BYTES as usize] =
+            hex!("1ae168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52a");
+        let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+
+        let apdu: [u8; 2 * N_BYTES as usize + 1] = hex!("04c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee51ae168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52a");
+        let apdu_test = p1.export_apdu().unwrap();
+        assert_eq!(apdu, apdu_test);
+
+        cx_bn_unlock().unwrap();
+    }
+
+
+    #[test]
+    fn test_point_is_at_infinity() {
+        cx_bn_lock(N_BYTES, 0).unwrap();
+
+        // 2 * G
+        let p1_x_bytes: [u8; N_BYTES as usize] =
+            hex!("c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5");
+        let p1_y_bytes: [u8; N_BYTES as usize] =
+            hex!("1ae168fea63dc339a3c58419466ceaeef7f632653266d0e1236431a950cfe52a");
+        let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+
+        assert_eq!(false, p1.is_at_infinity().unwrap());
+        cx_bn_unlock().unwrap();
+    }
+}
+// IS_ON_CURVE PAS SUPPORTÉ PAR SPECULOS IL SEMBLE 
+    // #[test]
+    // fn test_point_is_on_curve1() {
+    //     cx_bn_lock(N_BYTES, 0);
+
+    //     let p1_x_bytes: [u8; N_BYTES as usize] =
+    //         hex!("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9");
+    //     let p1_y_bytes: [u8; N_BYTES as usize] =
+    //         hex!("388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672");
+    //     let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+
+    //     let p1_test = p1.is_on_curve().unwrap();
+    //     // let p1_test = true;
+    //     assert_eq!(true,p1_test);
+    //     cx_bn_unlock();
+    // }
+
+    // #[test]
+    // fn test_point_is_on_curve2() {
+    //     cx_bn_lock(N_BYTES, 0);
+
+    //     let p1_x_bytes: [u8; N_BYTES as usize] =
+    //         hex!("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f8");
+    //     let p1_y_bytes: [u8; N_BYTES as usize] =
+    //         hex!("388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672");
+    //     let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+
+    //     let p1_test = p1.is_on_curve().unwrap();
+    //     assert_eq!(false,p1_test);
+    //     cx_bn_unlock();
+    // }

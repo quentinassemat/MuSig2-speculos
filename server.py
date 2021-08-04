@@ -7,6 +7,12 @@ from binascii import hexlify, unhexlify
 from time import sleep
 from tools import *
 
+print((2*G).to_affine())
+
+print((3*G).to_affine())
+
+print((5*G).to_affine())
+
 randint1 = int.from_bytes(randbytes(4), 'big') // 2
 randint2 = int.from_bytes(randbytes(4), 'big') // 2
 rand_msg1 = hexlify(randint1.to_bytes(4, 'big')).decode()
@@ -66,7 +72,7 @@ for i in range(len(CMDS)):
                 ANSWER.append("cancelled")
             else :
                 ANSWER.append(int.from_bytes(r, 'big') % n)
-    sleep(2)
+    sleep(0.1)
 
 print(f"On obtient le résultat suivant : {ANSWER}")
 d.close()
