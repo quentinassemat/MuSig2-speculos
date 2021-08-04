@@ -304,17 +304,21 @@ impl PartialEq for Point {
 }
 
 // WRAPPERS AUTOUR DES FONCTIONS DE HASH
+extern "C" {
+    pub fn cx_sha256_update(ctx: *mut bindings::cx_sha256_t, data: *const u8, in_len: bindings::size_t) -> bindings::cx_err_t;
+    pub fn cx_sha256_final(ctx: *mut bindings::cx_sha256_t, digest: *const u8) -> bindings::cx_err_t;
+}
 
 #[derive(Clone, Copy)]
 pub struct Hash {
-    pub h: bindings::cx_hash_t,
+    pub h: bindings::cx_sha256_t,
 }
 
 impl Hash {
     pub fn new() -> Result<Hash, CxSyscallError> {
-        let mut h : bindings::cx_hash_t = bindings::cx_hash_t::default();
+        let mut h = bindings::cx_sha256_t::default();
         let err = unsafe {
-            bindings::cx_hash_init(&mut h as *mut bindings::cx_hash_t, bindings::CX_SHA256)
+            bindings::cx_sha256_init_no_throw(&mut h as *mut bindings::cx_sha256_t)
         };
         if err != 0 {
             let cx_err: CxSyscallError = err.into();
@@ -327,7 +331,7 @@ impl Hash {
     }
 
     pub fn update(&mut self, input: &[u8], in_len: u32) -> Result<(), CxSyscallError> {
-        let err = unsafe { bindings::cx_hash_update(&mut self.h, input.as_ptr(), in_len) };
+        let err = unsafe { cx_sha256_update(&mut self.h, input.as_ptr(), in_len) };
         if err != 0 {
             let cx_err: CxSyscallError = err.into();
             nanos_sdk::debug_print("err cx_hash_update\n");
@@ -340,7 +344,7 @@ impl Hash {
 
     pub fn digest(&mut self) -> Result<[u8; N_BYTES as usize], CxSyscallError> {
         let mut digest: [u8; N_BYTES as usize] = [0u8; N_BYTES as usize];
-        let err = unsafe { bindings::cx_hash_final(&mut self.h, digest.as_mut_ptr()) };
+        let err = unsafe { cx_sha256_final(&mut self.h, digest.as_mut_ptr()) };
         if err != 0 {
             let cx_err: CxSyscallError = err.into();
             nanos_sdk::debug_print("err cx_hash_digest\n");
