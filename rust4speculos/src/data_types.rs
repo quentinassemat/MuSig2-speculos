@@ -18,6 +18,7 @@ pub const M: &str = "Alice donne 1 Bitcoin à Bob";
 // STRUCTURE DE DONNÉES
 // TOUT S'UTILISE UNIQUEMENT EN LOCK
 
+#[derive(Copy, Clone)]
 pub struct Field {
     pub index: CxBn,
     pub bytes: [u8; N_BYTES as usize],
@@ -159,6 +160,7 @@ impl PartialEq for Field {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Point {
     pub p: bindings::cx_ecpoint_t,
 }
@@ -305,8 +307,15 @@ impl PartialEq for Point {
 
 // WRAPPERS AUTOUR DES FONCTIONS DE HASH
 extern "C" {
-    pub fn cx_sha256_update(ctx: *mut bindings::cx_sha256_t, data: *const u8, in_len: bindings::size_t) -> bindings::cx_err_t;
-    pub fn cx_sha256_final(ctx: *mut bindings::cx_sha256_t, digest: *const u8) -> bindings::cx_err_t;
+    pub fn cx_sha256_update(
+        ctx: *mut bindings::cx_sha256_t,
+        data: *const u8,
+        in_len: bindings::size_t,
+    ) -> bindings::cx_err_t;
+    pub fn cx_sha256_final(
+        ctx: *mut bindings::cx_sha256_t,
+        digest: *const u8,
+    ) -> bindings::cx_err_t;
 }
 
 #[derive(Clone, Copy)]
@@ -317,16 +326,15 @@ pub struct Hash {
 impl Hash {
     pub fn new() -> Result<Hash, CxSyscallError> {
         let mut h = bindings::cx_sha256_t::default();
-        let err = unsafe {
-            bindings::cx_sha256_init_no_throw(&mut h as *mut bindings::cx_sha256_t)
-        };
+        let err =
+            unsafe { bindings::cx_sha256_init_no_throw(&mut h as *mut bindings::cx_sha256_t) };
         if err != 0 {
             let cx_err: CxSyscallError = err.into();
             nanos_sdk::debug_print("err cx_hash_new\n");
             cx_err.show();
             Err(cx_err)
         } else {
-            Ok(Hash{h})
+            Ok(Hash { h })
         }
     }
 

@@ -11,8 +11,7 @@ test = hl.sha256(b''.join([(G.x.val).to_bytes(N_bytes, 'big')])).digest()
 
 test2 = hexlify(test)
 
-print(test)
-print(test2)
+print(M.encode('utf-8'))
 
 randint1 = int.from_bytes(randbytes(4), 'big') // 2
 randint2 = int.from_bytes(randbytes(4), 'big') // 2

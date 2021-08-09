@@ -58,8 +58,12 @@ impl CxSyscallError {
             CxSyscallError::Unlocked => nanos_sdk::debug_print("Unlocked\n"),
             CxSyscallError::NotLocked => nanos_sdk::debug_print("NotLocked\n"),
             CxSyscallError::InternalError => nanos_sdk::debug_print("InternalError\n"),
-            CxSyscallError::InvalidParameterSize => nanos_sdk::debug_print("InvalidParameterSize\n"),
-            CxSyscallError::InvalidParameterValue => nanos_sdk::debug_print("InvalidParameterValue\n"),
+            CxSyscallError::InvalidParameterSize => {
+                nanos_sdk::debug_print("InvalidParameterSize\n")
+            }
+            CxSyscallError::InvalidParameterValue => {
+                nanos_sdk::debug_print("InvalidParameterValue\n")
+            }
             CxSyscallError::InvalidParameter => nanos_sdk::debug_print("InvalidParameter\n"),
             CxSyscallError::NotInvertible => nanos_sdk::debug_print("NotInvertible\n"),
             CxSyscallError::Overflow => nanos_sdk::debug_print("Overflow\n"),
@@ -349,7 +353,6 @@ pub fn cx_ecpoint_is_at_infinity(
 //         Ok(())
 //     }
 // }
-
 
 // // WRAPPERS AUTOUR DES FONCTIONS DE HASH
 

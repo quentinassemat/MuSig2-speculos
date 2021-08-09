@@ -9,10 +9,14 @@ mod crypto_helpers;
 mod cx_helpers;
 mod data_types;
 mod utils;
+mod signer;
 
-use crypto_helpers::*;
-use data_types::*;
+use crate::cx_helpers::*;
+use crate::crypto_helpers::*;
+use crate::data_types::*;
+use crate::signer::*;
 
+use nanos_sdk::buttons::ButtonEvent;
 use nanos_sdk::exit_app;
 use nanos_sdk::io;
 use nanos_sdk::io::Reply;
@@ -27,25 +31,47 @@ pub const N_BYTES: u32 = 32;
 
 nanos_sdk::set_panic!(nanos_sdk::exiting_panic);
 
+/// Basic nested menu. Will be subject
+/// to simplifications in the future.
+#[allow(clippy::needless_borrow)]
+fn show_menu(s: &mut Signer) {
+    loop {
+        match ui::Menu::new(&[&"PubKey", &"Infos", &"Back", &"Exit App"]).show() {
+            0 => show_pubkey(s).unwrap(),
+            1 => loop {
+                match ui::Menu::new(&[&"Copyright", &"Authors", &"Back"]).show() {
+                    0 => ui::popup("2020 Ledger"),
+                    1 => ui::popup("???"),
+                    _ => break,
+                }
+            },
+            2 => return,
+            3 => nanos_sdk::exit_app(0),
+            _ => (),
+        }
+    }
+}
+
 /// Display public key in two separate
 /// message scrollers
-fn show_pubkey() {
-    let pubkey = get_pubkey();
+fn show_pubkey(s: &mut Signer) -> Result<(), CxSyscallError> {
+    let pubkey = s.get_pubkey();
     match pubkey {
         Ok(pk) => {
             {
-                let hex0 = utils::to_hex(&pk.W[1..33]).unwrap();
+                let hex0 = utils::to_hex(&pk[1..33]).unwrap();
                 let m = from_utf8(&hex0).unwrap();
                 ui::MessageScroller::new(m).event_loop();
             }
             {
-                let hex1 = utils::to_hex(&pk.W[33..65]).unwrap();
+                let hex1 = utils::to_hex(&pk[33..65]).unwrap();
                 let m = from_utf8(&hex1).unwrap();
                 ui::MessageScroller::new(m).event_loop();
             }
         }
-        Err(_) => ui::popup("Error"),
+        Err(e) => e.show(),
     }
+    Ok(())
 }
 
 #[no_mangle]
@@ -53,6 +79,7 @@ fn show_pubkey() {
 extern "C" fn sample_main() {
     let mut comm = io::Comm::new();
     comm.reply_ok();
+    let mut s: Signer = Signer::new().unwrap();
     loop {
         // Draw some 'welcome' screen
         ui::SingleMessage::new("Welcome MuSig2").show();
@@ -61,10 +88,10 @@ extern "C" fn sample_main() {
 
         match comm.next_event() {
             io::Event::Button(ButtonEvent::RightButtonRelease) => nanos_sdk::exit_app(0),
-            io::Event::Command(ins) => match handle_apdu(&mut comm, ins) {
+            io::Event::Button(ButtonEvent::LeftButtonRelease) => show_menu(&mut s),
+            io::Event::Command(ins) => match handle_apdu(&mut comm, ins, &mut s) {
                 Ok(()) => comm.reply_ok(),
                 Err(sw) => {
-                    ui::popup("Erreur2");
                     comm.reply(sw);
                 }
             },
@@ -72,6 +99,8 @@ extern "C" fn sample_main() {
         }
     }
 }
+
+// FONCTIONS POUR GÉRER LES DIFFÉRENTS APDU
 
 fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, CxSyscallError> {
     if ui::Validator::new("Add int ?").ask() {
@@ -136,7 +165,6 @@ fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, CxSyscall
     }
 }
 
-use crate::cx_helpers::*;
 fn add_point(
     message: &[u8],
 ) -> Result<Option<[u8; 2 * N_BYTES as usize + 1_usize]>, CxSyscallError> {
@@ -165,23 +193,69 @@ fn add_point(
     }
 }
 
+fn sign_musig_2(comm: &mut io::Comm, s: &mut Signer) -> Result<Option<[u8; N_BYTES as usize]>, CxSyscallError> { // fonction renvoie la signature en binaire
+    // on envoie pas les clefs publiques, les autres sont censées les avoir (speculos génère toujours les mêmes de tout façon)
+    // on les affiches dans le debug pour les rentrer dans le python
+
+
+    // on est censé déjà avoir les clefs publiques des autres donc on les reçoit pas 
+
+    //génération private nonces
+    s.gen_private_nonces()?;
+
+    //mode attente et envoie des privates nonces au server 
+    comm.reply_ok();
+    loop {
+        // Draw some 'Wainting ...' screen
+        ui::SingleMessage::new("Waiting ...").show();
+        // Wait for a valid instruction
+        match comm.next_event() {
+            io::Event::Command(ins) =>  {
+                match ins {
+                    Ins::SendNonces => {
+                        let pn = s.get_public_nonces()?;
+                        for i in 0..NB_NONCES {
+                            comm.append(&pn[i as usize]);
+                            // comm.reply_ok();
+                            nanos_sdk::debug_print("test boucle");
+                        }
+                        comm.reply_ok();
+                        ui::popup("ok");
+                        break;
+                    },
+                    _ => {
+                        ui::popup("Invalid : signing");
+                    },
+                }
+            },
+            _ => (),
+        }
+    }
+    ui::popup("quit sign");
+
+    Ok(None)
+
+}
+
+// REPRÉSENTATION DES INSTRUCTIONS
+
+// à modifier pour mettres les envoies de nonces/réception etc 
 #[repr(u8)]
 enum Ins {
     GetPubkey,
-    RecInt,
-    RecField,
-    RecPoint,
+    SignMuSig2,
+    SendNonces,
     ShowPrivateKey,
     Exit,
 }
 
+// mettre que si on les reçoit d'ici ça marque  : instruction invalide : pas en signature
 impl From<u8> for Ins {
     fn from(ins: u8) -> Ins {
         match ins {
             1 => Ins::GetPubkey,
-            3 => Ins::RecInt,
-            4 => Ins::RecField,
-            5 => Ins::RecPoint,
+            2 => Ins::SignMuSig2,
+            3 => Ins::SendNonces,
             0xfe => Ins::ShowPrivateKey,
             0xff => Ins::Exit,
             _ => panic!(),
@@ -189,32 +263,25 @@ impl From<u8> for Ins {
     }
 }
 
-fn handle_apdu(comm: &mut io::Comm, ins: Ins) -> Result<(), Reply> {
+// à bien différencier pour le sign et pas le sign 
+fn handle_apdu(comm: &mut io::Comm, ins: Ins, s: &mut Signer) -> Result<(), Reply> {
     if comm.rx == 0 {
         return Err(io::StatusWords::NothingReceived.into());
     }
 
     match ins {
-        Ins::GetPubkey => comm.append(&get_pubkey()?.W),
+        Ins::GetPubkey => comm.append(&s.get_pubkey()?),
         Ins::ShowPrivateKey => comm.append(&bip32_derive_secp256k1(&BIP32_PATH)?),
         Ins::Exit => nanos_sdk::exit_app(0),
-        Ins::RecInt => {
-            let out = add_int(comm.get_data()?)?;
+        Ins::SignMuSig2 => {
+            let out = sign_musig_2(comm, s)?;
+            ui::popup("test");
             if let Some(o) = out {
                 comm.append(&o)
             }
         }
-        Ins::RecField => {
-            let out = add_field(comm.get_data()?)?;
-            if let Some(o) = out {
-                comm.append(&o)
-            }
-        }
-        Ins::RecPoint => {
-            let out = add_point(comm.get_data()?)?;
-            if let Some(o) = out {
-                comm.append(&o)
-            }
+        Ins::SendNonces => {
+            ui::popup("Not signing");
         }
     }
     Ok(())
@@ -419,7 +486,7 @@ mod test {
         let p3: Point = Point::new_init(&p3_x_bytes, &p3_y_bytes).unwrap();
 
         let p3_test = p1.add(p2).unwrap();
-        assert_eq!(p3,p3_test);
+        assert_eq!(p3, p3_test);
         cx_bn_unlock().unwrap();
     }
 
@@ -438,7 +505,7 @@ mod test {
 
         // 2
         let field1_bytes: [u8; N_BYTES as usize] =
-        hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364143"); //  = 2
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364143"); //  = 2
         let field1: Field = Field::new_init(&field1_bytes).unwrap();
 
         gen.mul_scalar(field1).unwrap();
@@ -465,7 +532,6 @@ mod test {
         cx_bn_unlock().unwrap();
     }
 
-
     #[test]
     fn test_point_is_at_infinity() {
         cx_bn_lock(N_BYTES, 0).unwrap();
@@ -483,67 +549,58 @@ mod test {
 
     #[test]
     fn test_hash() {
-        // cx_bn_lock(N_BYTES, 0).unwrap();
+        cx_bn_lock(N_BYTES, 0).unwrap();
 
         let mut hash = Hash::new().unwrap();
 
-        // let bs = unsafe {(*hash.h.info).block_size};
-        // let bs_h: [u8;1] = [bs as u8];
-        // let hex = utils::to_hex(&bs_h).map_err(|_| CxSyscallError::Overflow).unwrap();
-        // let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter).unwrap(); 
+        let test: [u8; N_BYTES as usize] =
+            hex!("132f39a98c31baaddba6525f5d43f2954472097fa15265f45130bfdb70e51def"); // résultat censé être obtenu
+        let gen: Point = Point::new_gen().unwrap();
+        let x: Field = gen.x_affine().unwrap();
+        let bytes = x.bytes;
+
+        hash.update(&bytes, N_BYTES).unwrap();
+        let digest = hash.digest().unwrap();
+
+        //pour afficher le hash en debug_print
+
+        // let hex = utils::to_hex(&digest).map_err(|_| CxSyscallError::Overflow).unwrap();
+        // let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter).unwrap();
         // nanos_sdk::debug_print(m);
 
-        // if unsafe {(*hash.h.info).block_size == 32} {
-        //     ui::popup("32");
-        // }
-        // if unsafe {(*hash.h.info).block_size == 0} {
-        //     ui::popup("0");
-        // }
-        // else {
-        //     ui::popup("false");
-        // }
-        // let test: [u8; N_BYTES as usize] = hex!("132f39a98c31baaddba6525f5d43f2954472097fa15265f45130bfdb70e51def"); // résultat censé être obtenu
-        // let gen: Point = Point::new_gen().unwrap();
-        // let x: Field = gen.x_affine().unwrap();
-        // let bytes = x.bytes;
+        assert_eq!(digest, test);
 
-        // let test2: [u8; 2] = [2,3];
-        // hash.update(&test2, 2).unwrap();
-        // let digest = hash.digest().unwrap();
-        
-        // assert_eq!(digest, test);
-        assert_eq!(1, 1);
-        // cx_bn_unlock().unwrap();
+        cx_bn_unlock().unwrap();
     }
 }
-// IS_ON_CURVE PAS SUPPORTÉ PAR SPECULOS IL SEMBLE 
-    // #[test]
-    // fn test_point_is_on_curve1() {
-    //     cx_bn_lock(N_BYTES, 0);
+// IS_ON_CURVE PAS SUPPORTÉ PAR SPECULOS IL SEMBLE
+// #[test]
+// fn test_point_is_on_curve1() {
+//     cx_bn_lock(N_BYTES, 0);
 
-    //     let p1_x_bytes: [u8; N_BYTES as usize] =
-    //         hex!("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9");
-    //     let p1_y_bytes: [u8; N_BYTES as usize] =
-    //         hex!("388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672");
-    //     let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+//     let p1_x_bytes: [u8; N_BYTES as usize] =
+//         hex!("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9");
+//     let p1_y_bytes: [u8; N_BYTES as usize] =
+//         hex!("388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672");
+//     let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
 
-    //     let p1_test = p1.is_on_curve().unwrap();
-    //     // let p1_test = true;
-    //     assert_eq!(true,p1_test);
-    //     cx_bn_unlock();
-    // }
+//     let p1_test = p1.is_on_curve().unwrap();
+//     // let p1_test = true;
+//     assert_eq!(true,p1_test);
+//     cx_bn_unlock();
+// }
 
-    // #[test]
-    // fn test_point_is_on_curve2() {
-    //     cx_bn_lock(N_BYTES, 0);
+// #[test]
+// fn test_point_is_on_curve2() {
+//     cx_bn_lock(N_BYTES, 0);
 
-    //     let p1_x_bytes: [u8; N_BYTES as usize] =
-    //         hex!("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f8");
-    //     let p1_y_bytes: [u8; N_BYTES as usize] =
-    //         hex!("388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672");
-    //     let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
+//     let p1_x_bytes: [u8; N_BYTES as usize] =
+//         hex!("f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f8");
+//     let p1_y_bytes: [u8; N_BYTES as usize] =
+//         hex!("388f7b0f632de8140fe337e62a37f3566500a99934c2231b6cb9fd7584b8e672");
+//     let p1: Point = Point::new_init(&p1_x_bytes, &p1_y_bytes).unwrap();
 
-    //     let p1_test = p1.is_on_curve().unwrap();
-    //     assert_eq!(false,p1_test);
-    //     cx_bn_unlock();
-    // }
+//     let p1_test = p1.is_on_curve().unwrap();
+//     assert_eq!(false,p1_test);
+//     cx_bn_unlock();
+// }
