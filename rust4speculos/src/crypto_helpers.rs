@@ -20,11 +20,11 @@ pub fn bip32_derive_secp256k1(path: &[u32]) -> Result<[u8; 32], SyscallError> {
 //     nanos_sdk::ecc::ecdsa_sign(ec_k, CX_RND_RFC6979 | CX_LAST, CX_SHA256, m)
 // }
 
-pub fn get_pubkey() -> Result<nanos_sdk::bindings::cx_ecfp_public_key_t, SyscallError> {
-    let raw_key = bip32_derive_secp256k1(&BIP32_PATH)?;
-    let mut ec_k = nanos_sdk::ecc::ec_init_key(CurvesId::Secp256k1, &raw_key)?;
-    nanos_sdk::ecc::ec_get_pubkey(CurvesId::Secp256k1, &mut ec_k)
-}
+// pub fn get_pubkey() -> Result<nanos_sdk::bindings::cx_ecfp_public_key_t, SyscallError> {
+//     let raw_key = bip32_derive_secp256k1(&BIP32_PATH)?;
+//     let mut ec_k = nanos_sdk::ecc::ec_init_key(CurvesId::Secp256k1, &raw_key)?;
+//     nanos_sdk::ecc::ec_get_pubkey(CurvesId::Secp256k1, &mut ec_k)
+// }
 
 pub fn get_private_key() -> Result<nanos_sdk::bindings::cx_ecfp_private_key_t, SyscallError> {
     let raw_key = bip32_derive_secp256k1(&BIP32_PATH)?;

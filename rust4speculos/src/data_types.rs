@@ -18,6 +18,7 @@ pub const M: &str = "Alice donne 1 Bitcoin à Bob";
 // STRUCTURE DE DONNÉES
 // TOUT S'UTILISE UNIQUEMENT EN LOCK
 
+#[derive(Copy, Clone)]
 pub struct Field {
     pub index: CxBn,
     pub bytes: [u8; N_BYTES as usize],
@@ -58,6 +59,20 @@ impl Field {
 
         // on renvoie
         Ok(Field { index, bytes })
+    }
+
+    pub fn new_rand() -> Result<Field, CxSyscallError> {
+        // init avec un pointeur vers un tableau de [u8 : N_BYTES = 32]
+
+        let mut new_rand: Field = Field::new()?;
+
+        cx_bn_rand(new_rand.index)?;
+
+        // on stocke en bytes
+        cx_bn_export(new_rand.index, &mut new_rand.bytes)?;
+
+        // on renvoie
+        Ok(new_rand)
     }
 
     pub fn add(&self, other: Field, modulo: Field) -> Result<Field, CxSyscallError> {
@@ -145,6 +160,7 @@ impl PartialEq for Field {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct Point {
     pub p: bindings::cx_ecpoint_t,
 }
@@ -182,6 +198,10 @@ impl Point {
     }
 
     pub fn new_gen() -> Result<Point, CxSyscallError> {
+        // on check si c'est lock
+        if !cx_bn_is_locked() {
+            return Err(CxSyscallError::NotLocked);
+        }
         let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
         let p = cx_ecdomain_generator_bn(bindings::CX_CURVE_SECP256K1, &mut p)?;
         Ok(Point { p })
@@ -282,5 +302,64 @@ impl PartialEq for Point {
         let (self_x, self_y) = self.coords().unwrap();
         let (other_x, other_y) = other.coords().unwrap();
         (self_x == other_x) && (self_y == other_y)
+    }
+}
+
+// WRAPPERS AUTOUR DES FONCTIONS DE HASH
+extern "C" {
+    pub fn cx_sha256_update(
+        ctx: *mut bindings::cx_sha256_t,
+        data: *const u8,
+        in_len: bindings::size_t,
+    ) -> bindings::cx_err_t;
+    pub fn cx_sha256_final(
+        ctx: *mut bindings::cx_sha256_t,
+        digest: *const u8,
+    ) -> bindings::cx_err_t;
+}
+
+#[derive(Clone, Copy)]
+pub struct Hash {
+    pub h: bindings::cx_sha256_t,
+}
+
+impl Hash {
+    pub fn new() -> Result<Hash, CxSyscallError> {
+        let mut h = bindings::cx_sha256_t::default();
+        let err =
+            unsafe { bindings::cx_sha256_init_no_throw(&mut h as *mut bindings::cx_sha256_t) };
+        if err != 0 {
+            let cx_err: CxSyscallError = err.into();
+            nanos_sdk::debug_print("err cx_hash_new\n");
+            cx_err.show();
+            Err(cx_err)
+        } else {
+            Ok(Hash { h })
+        }
+    }
+
+    pub fn update(&mut self, input: &[u8], in_len: u32) -> Result<(), CxSyscallError> {
+        let err = unsafe { cx_sha256_update(&mut self.h, input.as_ptr(), in_len) };
+        if err != 0 {
+            let cx_err: CxSyscallError = err.into();
+            nanos_sdk::debug_print("err cx_hash_update\n");
+            cx_err.show();
+            Err(cx_err)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn digest(&mut self) -> Result<[u8; N_BYTES as usize], CxSyscallError> {
+        let mut digest: [u8; N_BYTES as usize] = [0u8; N_BYTES as usize];
+        let err = unsafe { cx_sha256_final(&mut self.h, digest.as_mut_ptr()) };
+        if err != 0 {
+            let cx_err: CxSyscallError = err.into();
+            nanos_sdk::debug_print("err cx_hash_digest\n");
+            cx_err.show();
+            Err(cx_err)
+        } else {
+            Ok(digest)
+        }
     }
 }

@@ -7,11 +7,11 @@ from binascii import hexlify, unhexlify
 from time import sleep
 from tools import *
 
-print((2*G).to_affine())
+test = hl.sha256(b''.join([(G.x.val).to_bytes(N_bytes, 'big')])).digest()
 
-print((3*G).to_affine())
+test2 = hexlify(test)
 
-print((5*G).to_affine())
+print(M.encode('utf-8'))
 
 randint1 = int.from_bytes(randbytes(4), 'big') // 2
 randint2 = int.from_bytes(randbytes(4), 'big') // 2
