@@ -102,101 +102,12 @@ extern "C" fn sample_main() {
 
 // FONCTIONS POUR GÉRER LES DIFFÉRENTS APDU
 
-fn add_int(message: &[u8]) -> Result<Option<[u8; 4]>, CxSyscallError> {
-    if ui::Validator::new("Add int ?").ask() {
-        let int1_bytes: [u8; 4] = [message[0], message[1], message[2], message[3]];
-        {
-            let hex = utils::to_hex(&int1_bytes).map_err(|_| CxSyscallError::Overflow)?;
-            let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
-            ui::popup("Int 1");
-            ui::popup(m);
-        }
-
-        let int2_bytes: [u8; 4] = [message[4], message[5], message[6], message[7]];
-        {
-            let hex = utils::to_hex(&int2_bytes).map_err(|_| CxSyscallError::Overflow)?;
-            let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
-            ui::popup("Int 2");
-            ui::popup(m);
-        }
-
-        Ok(Some(
-            (u32::from_be_bytes(int1_bytes) + u32::from_be_bytes(int2_bytes)).to_be_bytes(),
-        ))
-    } else {
-        ui::popup("Cancelled");
-        Ok(None)
-    }
-}
-
-fn add_field(message: &[u8]) -> Result<Option<[u8; N_BYTES as usize]>, CxSyscallError> {
-    // on essaye d'optimiser la place sur la stack avec les {}
-    if ui::Validator::new("Add field ?").ask() {
-        cx_bn_lock(N_BYTES, 0)?;
-
-        // déclaration
-        let mod_bytes: [u8; N_BYTES as usize] =
-            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
-
-        let mut field1_bytes = [0_u8; N_BYTES as usize];
-        for i in 0..N_BYTES {
-            field1_bytes[i as usize] = message[i as usize];
-        }
-
-        let mut field2_bytes = [0_u8; N_BYTES as usize];
-        for i in 0..N_BYTES {
-            field2_bytes[i as usize] = message[i as usize + N_BYTES as usize];
-        }
-
-        let field1: Field = Field::new_init(&field1_bytes)?;
-        ui::popup("field 1");
-        field1.show()?;
-        let field2: Field = Field::new_init(&field2_bytes)?;
-        ui::popup("field 2");
-        field2.show()?;
-        let modulo: Field = Field::new_init(&mod_bytes)?;
-
-        let field3 = field1.add(field2, modulo)?;
-        cx_bn_unlock()?;
-        Ok(Some(field3.bytes))
-    } else {
-        ui::popup("Cancelled");
-        Ok(None)
-    }
-}
-
-fn add_point(
-    message: &[u8],
-) -> Result<Option<[u8; 2 * N_BYTES as usize + 1_usize]>, CxSyscallError> {
-    if ui::Validator::new("Add point ?").ask() {
-        cx_bn_lock(N_BYTES, 0)?;
-
-        let point1 = Point::new_init(&message[1..33], &message[33..65])?;
-        ui::popup("point 1");
-        point1.show()?;
-        let point2 = Point::new_init(&message[66..98], &message[98..130])?;
-        ui::popup("point 2");
-        point2.show()?;
-
-        // on fait l'addition des deux points
-        let point3 = point1.add(point2)?;
-        ui::popup("point 3");
-        point3.show()?;
-
-        let bytes = point3.export_apdu()?;
-
-        cx_bn_unlock()?;
-        Ok(Some(bytes))
-    } else {
-        ui::popup("Cancelled");
-        Ok(None)
-    }
-}
 
 fn sign_musig_2(comm: &mut io::Comm, s: &mut Signer) -> Result<Option<[u8; N_BYTES as usize]>, CxSyscallError> { // fonction renvoie la signature en binaire
     // on envoie pas les clefs publiques, les autres sont censées les avoir (speculos génère toujours les mêmes de tout façon)
     // on les affiches dans le debug pour les rentrer dans le python
 
+    let fake_sign: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
 
     // on est censé déjà avoir les clefs publiques des autres donc on les reçoit pas 
 
@@ -205,36 +116,62 @@ fn sign_musig_2(comm: &mut io::Comm, s: &mut Signer) -> Result<Option<[u8; N_BYT
 
     //mode attente et envoie des privates nonces au server 
     comm.reply_ok();
-    loop {
-        // Draw some 'Wainting ...' screen
-        ui::SingleMessage::new("Waiting ...").show();
-        // Wait for a valid instruction
-        match comm.next_event() {
-            io::Event::Command(ins) =>  {
-                match ins {
-                    Ins::SendNonces => {
-                        let pn = s.get_public_nonces()?;
-                        for i in 0..NB_NONCES {
+    for i in 0..NB_NONCES {
+        let pn = s.get_public_nonces()?;
+        loop {
+            // Draw some 'Sending nonces ...' screen
+            ui::SingleMessage::new("Sending nonces ...").show();
+            // Wait for a valid instruction
+            match comm.next_event() {
+                io::Event::Command(ins) =>  {
+                    match ins {
+                        Ins::SendNonces => {
                             comm.append(&pn[i as usize]);
-                            // comm.reply_ok();
-                            nanos_sdk::debug_print("test boucle");
-                        }
-                        comm.reply_ok();
-                        ui::popup("ok");
-                        break;
-                    },
-                    _ => {
-                        ui::popup("Invalid : signing");
-                    },
-                }
-            },
-            _ => (),
+                            comm.reply_ok();
+                            break;
+                        },
+                        _ => (),
+                    }
+                },
+                _ => (),
+            }
         }
-    }
-    ui::popup("quit sign");
+    } 
 
-    Ok(None)
+    // réception des nonces de la part du server 
 
+    for i in 0..NB_PARTICIPANT {
+        loop {
+            // Draw some 'Waiting ...' screen
+            ui::SingleMessage::new("Recep nonces ...").show();
+            // Wait for a valid instruction
+            match comm.next_event() {
+                io::Event::Command(ins) =>  {
+                    match ins {
+                        Ins::RecepNonces => {
+                            nanos_sdk::debug_print("debug1");
+                            match comm.get_data() {
+                                Ok(data) => {
+                                    nanos_sdk::debug_print("debug2");
+                                    s.recep_nonces(data);
+                                    nanos_sdk::debug_print("debug3");
+                                    comm.reply_ok();
+                                    nanos_sdk::debug_print("debug4");
+                                }
+                                Err(e) => {
+                                    nanos_sdk::debug_print("badlen\n");
+                                }
+                            }
+                            break;
+                        },
+                        _ => (),
+                    }
+                },
+                _ => (),
+            }
+        }
+    } 
+    Ok(Some(fake_sign))
 }
 
 // REPRÉSENTATION DES INSTRUCTIONS
@@ -245,6 +182,7 @@ enum Ins {
     GetPubkey,
     SignMuSig2,
     SendNonces,
+    RecepNonces,
     ShowPrivateKey,
     Exit,
 }
@@ -256,6 +194,7 @@ impl From<u8> for Ins {
             1 => Ins::GetPubkey,
             2 => Ins::SignMuSig2,
             3 => Ins::SendNonces,
+            4 => Ins::RecepNonces,
             0xfe => Ins::ShowPrivateKey,
             0xff => Ins::Exit,
             _ => panic!(),
@@ -268,21 +207,22 @@ fn handle_apdu(comm: &mut io::Comm, ins: Ins, s: &mut Signer) -> Result<(), Repl
     if comm.rx == 0 {
         return Err(io::StatusWords::NothingReceived.into());
     }
-
     match ins {
         Ins::GetPubkey => comm.append(&s.get_pubkey()?),
         Ins::ShowPrivateKey => comm.append(&bip32_derive_secp256k1(&BIP32_PATH)?),
         Ins::Exit => nanos_sdk::exit_app(0),
         Ins::SignMuSig2 => {
             let out = sign_musig_2(comm, s)?;
-            ui::popup("test");
             if let Some(o) = out {
                 comm.append(&o)
             }
         }
-        Ins::SendNonces => {
-            ui::popup("Not signing");
-        }
+        // les autres cas correspondent à une instruction erronnée ou à une instruction pendant la signature
+        // dans les deux cas on ne fait rien
+        _ => {
+            let o:[u8; N_BYTES as usize] = [0; N_BYTES as usize];
+            comm.append(&o);
+        },
     }
     Ok(())
 }

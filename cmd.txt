@@ -8,7 +8,7 @@ docker run --rm -it -v "$(pwd)"/rust4speculos/target/thumbv6m-none-eabi/release:
 
 speculos2
 docker run --rm -it -v "$(pwd)"/rust4speculos/target/thumbv6m-none-eabi/release:/speculos/apps \
--p 1235:1234 -p 5001:5000 -p 40001:40000 -p 41001:41000 ghcr.io/ledgerhq/speculos \
+-p 1235:1234 -p 5001:5000 -p 40001:40001 -p 41001:41000 ghcr.io/ledgerhq/speculos \
 --model nanos ./apps/rust-app --sdk 2.0 --seed "secret2" --display headless --apdu-port 40001 --vnc-port 41001
 
 speculos 1 test 

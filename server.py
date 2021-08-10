@@ -7,72 +7,134 @@ from binascii import hexlify, unhexlify
 from time import sleep
 from tools import *
 
-test = hl.sha256(b''.join([(G.x.val).to_bytes(N_bytes, 'big')])).digest()
+#Paramètres pour la signature
+nb_participant = 2 # pour l'instant on fait avec 2 participants
+# try: 
+#     nb_participant = int(sys.argv[1])
+# except ValueError:
+#     print("Unvalid number of signers")
+#     sys.exit(1)
 
-test2 = hexlify(test)
+nb_nonces = 3
+M = "Alice donne 1 Bitcoin à Bob"
 
-print(M.encode('utf-8'))
+#Données de communication serveur 
+ADRESSE = 'localhost'
+PORTS = [40000 + i for i in range(nb_participant)]
+MEM = 16496 # mémoire nécessaire pour communiquer les infos durant les étapes de communications
 
-randint1 = int.from_bytes(randbytes(4), 'big') // 2
-randint2 = int.from_bytes(randbytes(4), 'big') // 2
-rand_msg1 = hexlify(randint1.to_bytes(4, 'big')).decode()
-rand_msg2 = hexlify(randint2.to_bytes(4, 'big')).decode()
-l1 = hexlify((8).to_bytes(2, 'little')).decode()
-print(l1)
+# #Collecte des id (clé publiques) des signeurs:
+# PUBKEYS = [E] * nb_participant
 
-randfield1 = sct.randbelow(n)
-randfield2 = sct.randbelow(n)
-rand_msg3 = hexlify(randfield1.to_bytes(N_bytes, 'big')).decode()
-rand_msg4 = hexlify(randfield2.to_bytes(N_bytes, 'big')).decode()
-l2 = hexlify((2 * N_bytes).to_bytes(2, 'little')).decode()
-print(l2)
+#Construction des clefs publiques 
+# public key 1 : 0423cdc4924412d491d0ed13272372e945ddd9886c32592f8ac9b7b37dcd8adc7d20d88572e9fdbe872c1dbfbdb9921cb8d17af04a63b65646aa7bc29f42d16f41
+# public key 2 : 0479717b8ad6bd8efa41af00e682d97004be32738b54a30d2a0141eb2c2590baa0bffee15e85c9be9478e34e251baa3a2e11aef8269d8b1a695ceb7ff177185fd8
 
-randpoint1 = randfield1 * G
-randpoint2 = randfield2 * G
-rand_msg5 = hexlify(point_to_bytes(randpoint1)).decode()
-rand_msg6 = hexlify(point_to_bytes(randpoint2)).decode()
-l3 = hexlify((2 * (2 * N_bytes + 1)).to_bytes(2, 'little')).decode()
-print(l3)
+PUBKEYS_BIN = [unhexlify(b'0423cdc4924412d491d0ed13272372e945ddd9886c32592f8ac9b7b37dcd8adc7d20d88572e9fdbe872c1dbfbdb9921cb8d17af04a63b65646aa7bc29f42d16f41'), unhexlify(b'0479717b8ad6bd8efa41af00e682d97004be32738b54a30d2a0141eb2c2590baa0bffee15e85c9be9478e34e251baa3a2e11aef8269d8b1a695ceb7ff177185fd8')]
+PUBKEYS = [bytes_to_point(b) for b in PUBKEYS_BIN]
+
+SOCKETS  = [getDongleTCP(port=PORTS[i]) for i in range(nb_participant)]
+
+print("Les sockets est bind, nous pouvons commencer")
+
 
 CMDS = [
-    "8003"+ l1 + rand_msg1 + rand_msg2, # envoie de deux entier de type u32 
-    "8004" + l2 + rand_msg3 + rand_msg4, # envoie deux field element
-    "8005" + l3 + rand_msg5 + rand_msg6 # envoie deux point secp256k1
+    "80ff", # demande de quitter la signature
+    "8001", # demande de clef publique
+    "8002", # demande de signature 
+    "8003", # demande des publiques nonces 
+    "8004" + "c400" # +<indice du joueur> + <nonce1> + <nonce2>  + <nonce3>   envoie de nonce + taille (Taille de 3 nonces plus 1 bytes de préfixe qui indique de quelle joueur ça vient)
 ]
 
-d = getDongleTCP(port=40000)
+# mise en mode signature des clients rust 
 
-print(
-    f"Nous essayons de faire l'addition suivante {randint1} + {randint2} = {randint1 + randint2} ")
-
-print(
-    f"Nous essayons de faire l'addition suivante {randfield1} + {randfield2} = {(randfield1 + randfield2 ) % n} ")
-
-print(
-    f"Nous essayons de faire l'addition suivante {randpoint1.to_affine()} + {randpoint2.to_affine()} = {(randpoint1 + randpoint2).to_affine()} ")
-
-ANSWER = []
-for i in range(len(CMDS)):
-    cmd = unhexlify(CMDS[i])
-    # print(cmd)
-    r = None
+for i in range(nb_participant):
+    cmd = unhexlify(CMDS[2])
     try:
-        r = d.exchange(cmd)
-        sleep(1)
+        r = SOCKETS[i].exchange(cmd)
+        sleep(0.5)
     except Exception as e:
-        print("test")
         print(e)
-    if r is not None:
-        # print("Response hex : ", hexlify(r))
-        # ANSWER.append(int.from_bytes(r, 'big'))
-        if (i == len(CMDS) - 1):
-            ANSWER.append(bytes_to_point(r))
-        else:
-            if r == None:
-                ANSWER.append("cancelled")
-            else :
-                ANSWER.append(int.from_bytes(r, 'big') % n)
-    sleep(0.1)
+        print("Echec envoie mode signature : signature abandonnée")
+        cmd = unhexlify(CMDS[0])
+        for k in range(nb_participant):
+            SOCKETS[k].exchange(cmd)
+        sys.exit(1)
+    
 
-print(f"On obtient le résultat suivant : {ANSWER}")
-d.close()
+R = [[] for i in range(nb_participant)] #on remplit à la première étape
+count_nonce = 0
+
+for i in range(nb_participant):
+        cmd = unhexlify(CMDS[3]) # demande des publics nonces
+        for j in range(nb_nonces):
+            r = None
+            try: 
+                r = SOCKETS[i].exchange(cmd)
+                sleep(0.5)
+            except Exception as e:
+                print(e)
+            if r is not None:
+                R[i].append(bytes_to_point(r))
+            else:
+                print("Echec reception : signature abandonnée")
+                cmd = unhexlify(CMDS[0])
+                for k in range(nb_participant):
+                    SOCKETS[k].exchange(cmd)
+                sys.exit(1)
+print(R)
+
+# envoie des public nonces 
+
+for i in range(nb_participant):
+    for j in range(nb_participant):
+        nonces_to_send_bytes = bytearray()
+        for v in range(nb_nonces):
+            nonces_to_send_bytes += point_to_bytes(R[j][v])
+        cmd = unhexlify(CMDS[4]) + (j).to_bytes(1, 'big') + nonces_to_send_bytes # demande des publics nonces
+        print(len(cmd))
+        r = None
+        try: 
+            r = SOCKETS[i].exchange(cmd)
+            sleep(0.5)
+        except Exception as e:
+            print(e)
+            print("Echec reception : signature abandonnée")
+            cmd = unhexlify(CMDS[0])
+            for k in range(nb_participant):
+                SOCKETS[k].exchange(cmd)
+            sys.exit(1)
+
+for i in range(nb_participant):
+    SOCKETS[i].close()
+
+
+
+
+
+# ANSWER = []
+# for i in range(len(CMDS)):
+#     cmd = unhexlify(CMDS[i])
+#     # print(cmd)
+#     r = None
+#     try:
+#         r = d.exchange(cmd)
+#         sleep(1)
+#     except Exception as e:
+#         print("test")
+#         print(e)
+#     if r is not None:
+#         # print("Response hex : ", hexlify(r))
+#         # ANSWER.append(int.from_bytes(r, 'big'))
+#         if (i == len(CMDS) - 1):
+#             ANSWER.append(bytes_to_point(r))
+#         else:
+#             if r == None:
+#                 ANSWER.append("cancelled")
+#             else :
+#                 ANSWER.append(int.from_bytes(r, 'big') % n)
+#     sleep(0.1)
+
+# print(f"On obtient le résultat suivant : {ANSWER}")
+# d.close()
+ 

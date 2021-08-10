@@ -37,7 +37,7 @@ pub struct Signer {
 impl Signer {
     // constructeur
     pub fn new() -> Result<Signer, CxSyscallError> {
-        cx_bn_lock(N_BYTES, 0)?; 
+        // cx_bn_lock(N_BYTES, 0)?; 
 
         //gen secret_key
         let private_key: Field = Field::new_rand()?;
@@ -117,6 +117,17 @@ impl Signer {
             pn[i as usize] = self.public_nonces[i as usize].export_apdu()?;
         }
         Ok(pn)
+        // Ok(self.public_nonces[usize].export_apdu()?)
+    }
+
+    // FONCTIONS RECEPTION
+
+    pub fn recep_nonces(&mut self, data: &[u8]) -> Result<(), CxSyscallError> {
+        let ind_joueur = data[0];
+        for i in 0..NB_NONCES {
+            self.nonces[ind_joueur as usize][i as usize] = Point::new_init(&data[(2 + i as usize + i as usize * 2 * N_BYTES as usize)..(2 + i as usize + (i as usize * 2 + 1) * N_BYTES as usize)], &data[(2 + i as usize + (i as usize * 2 + 1) * N_BYTES as usize)..(2 + i as usize + (i as usize * 2 + 2) * N_BYTES as usize)])?;
+        }
+        Ok(())
     }
 
     //FONCTIONS DE CALCUL DU SIGNEUR
