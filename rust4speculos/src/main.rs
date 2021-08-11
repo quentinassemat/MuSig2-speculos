@@ -79,6 +79,7 @@ fn show_pubkey(s: &mut Signer) -> Result<(), CxSyscallError> {
 extern "C" fn sample_main() {
     let mut comm = io::Comm::new();
     comm.reply_ok();
+    nanos_sdk::debug_print("tes");
     let mut s: Signer = Signer::new().unwrap();
     loop {
         // Draw some 'welcome' screen
@@ -153,7 +154,7 @@ fn sign_musig_2(comm: &mut io::Comm, s: &mut Signer) -> Result<Option<[u8; N_BYT
                             match comm.get_data() {
                                 Ok(data) => {
                                     nanos_sdk::debug_print("debug2");
-                                    s.recep_nonces(data);
+                                    s.recep_nonces(data)?;
                                     nanos_sdk::debug_print("debug3");
                                     comm.reply_ok();
                                     nanos_sdk::debug_print("debug4");

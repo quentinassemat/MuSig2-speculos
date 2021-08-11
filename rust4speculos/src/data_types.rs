@@ -144,6 +144,26 @@ impl Field {
         Ok(Field { index, bytes })
     }
 
+    // memory optimisation
+
+    pub fn clear_crypto_ram(&mut self) -> Result<(), CxSyscallError> {
+        cx_bn_destroy(self.index)?;
+        Ok(())
+    }
+
+    pub fn fill_crypto_ram(&mut self) -> Result<(), CxSyscallError> {
+        // on check si c'est lock
+        if !cx_bn_is_locked() {
+            return Err(CxSyscallError::NotLocked);
+        }
+
+        // on alloue la mémoire
+        self.index = cx_bn_alloc_init(N_BYTES, &self.bytes)?;
+
+        Ok(())
+    }
+
+
     //affichage
 
     pub fn show(&self) -> Result<(), CxSyscallError> {
@@ -163,11 +183,16 @@ impl PartialEq for Field {
 #[derive(Copy, Clone)]
 pub struct Point {
     pub p: bindings::cx_ecpoint_t,
+    pub x_bytes: [u8; N_BYTES as usize],
+    pub y_bytes: [u8; N_BYTES as usize],
 }
 
 impl Point {
     pub fn new() -> Result<Point, CxSyscallError> {
         // new sans init
+        // déclaration
+        let x_bytes = [0u8; N_BYTES as usize];
+        let y_bytes = [0u8; N_BYTES as usize];
 
         // on check si c'est lock
         if !cx_bn_is_locked() {
@@ -178,7 +203,7 @@ impl Point {
         let p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
 
         // on renvoie
-        Ok(Point { p })
+        Ok(Point { p, x_bytes, y_bytes })
     }
 
     pub fn new_init(x: &[u8], y: &[u8]) -> Result<Point, CxSyscallError> {
@@ -191,10 +216,21 @@ impl Point {
 
         // on alloue la mémoire
         let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
+
         // on init
         cx_ecpoint_init(&mut p, x, y)?;
+
+        // déclaration
+        let mut x_bytes = [0u8; N_BYTES as usize];
+        let mut y_bytes = [0u8; N_BYTES as usize];
+
+        for i in 0..N_BYTES {
+            x_bytes[i as usize] = x[i as usize];
+            y_bytes[i as usize] = y[i as usize];
+        }
+
         // on renvoie
-        Ok(Point { p })
+        Ok(Point { p, x_bytes, y_bytes })
     }
 
     pub fn new_gen() -> Result<Point, CxSyscallError> {
@@ -204,7 +240,11 @@ impl Point {
         }
         let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
         let p = cx_ecdomain_generator_bn(bindings::CX_CURVE_SECP256K1, &mut p)?;
-        Ok(Point { p })
+
+        let mut x_bytes = [0u8; N_BYTES as usize];
+        let mut y_bytes = [0u8; N_BYTES as usize];
+        cx_ecpoint_export(&p, &mut x_bytes, &mut y_bytes)?;
+        Ok(Point { p, x_bytes, y_bytes })
     }
 
     pub fn add(&self, other: Point) -> Result<Point, CxSyscallError> {
@@ -221,7 +261,10 @@ impl Point {
         cx_ecpoint_add(&mut p, &self.p, &other.p)?;
 
         // on renvoie le résultat
-        Ok(Point { p })
+        let mut x_bytes = [0u8; N_BYTES as usize];
+        let mut y_bytes = [0u8; N_BYTES as usize];
+        cx_ecpoint_export(&p, &mut x_bytes, &mut y_bytes)?;
+        Ok(Point { p, x_bytes, y_bytes })
     }
 
     pub fn mul_scalar(&mut self, other: Field) -> Result<(), CxSyscallError> {
@@ -233,26 +276,25 @@ impl Point {
         }
 
         // on fait la multiplication
-        cx_ecpoint_rnd_scalarmul_bn(&mut self.p, other.index)
+        cx_ecpoint_rnd_scalarmul_bn(&mut self.p, other.index)?;
+
+        let mut x_bytes = [0u8; N_BYTES as usize];
+        let mut y_bytes = [0u8; N_BYTES as usize];
+        cx_ecpoint_export(&self.p, &mut x_bytes, &mut y_bytes)?;
+        self.x_bytes = x_bytes;
+        self.y_bytes = y_bytes;
+
+        Ok(())
     }
 
     //
 
-    pub fn is_at_infinity(&self) -> Result<bool, CxSyscallError> {
+    pub fn is_at_infinity(&mut self) -> Result<bool, CxSyscallError> { // executable que si chargé en ram crypto
         let mut res: bool = false;
         let res_ptr: *mut bool = &mut res;
-        cx_ecpoint_is_at_infinity(&self.p, res_ptr)?;
+        cx_ecpoint_is_at_infinity(&mut self.p, res_ptr)?;
         Ok(res)
     }
-
-    // PAS SUPPORTÉ PAS SPECULOS IL SEMBLE
-
-    // pub fn is_on_curve(&self) -> Result<bool, CxSyscallError> {
-    //     let mut res: bool = false;
-    //     let mut res_ptr: *mut bool = &mut res;
-    //     cx_ecpoint_is_on_curve(&self.p, res_ptr)?;
-    //     Ok(res)
-    // }
 
     // les trois getters des coordonnées
 
@@ -277,14 +319,36 @@ impl Point {
     }
 
     pub fn export_apdu(&self) -> Result<[u8; 2 * N_BYTES as usize + 1], CxSyscallError> {
-        let (x, y) = self.coords()?;
         let mut bytes: [u8; 2 * N_BYTES as usize + 1] = [0; 2 * N_BYTES as usize + 1];
         bytes[0] = 4; // on dit qu'on fait non compressé;
         for i in 0..N_BYTES {
-            bytes[1 + i as usize] = x.bytes[i as usize];
-            bytes[1 + i as usize + N_BYTES as usize] = y.bytes[i as usize];
+            bytes[1 + i as usize] = self.x_bytes[i as usize];
+            bytes[1 + i as usize + N_BYTES as usize] = self.y_bytes[i as usize];
         }
         Ok(bytes)
+    }
+
+    // memory optimisation
+
+    pub fn clear_crypto_ram(&mut self) -> Result<(), CxSyscallError> {
+        cx_ecpoint_destroy(&mut self.p)?;
+        Ok(())
+    }
+
+    pub fn fill_crypto_ram(&mut self) -> Result<(), CxSyscallError> {
+
+        // on check si c'est lock
+        if !cx_bn_is_locked() {
+            return Err(CxSyscallError::NotLocked);
+        }
+
+        // on alloue la mémoire
+        self.p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
+
+        // on init
+        cx_ecpoint_init(&mut self.p, &self.x_bytes, &self.y_bytes)?;
+
+        Ok(())
     }
 
     // affichage

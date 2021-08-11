@@ -37,41 +37,62 @@ pub struct Signer {
 impl Signer {
     // constructeur
     pub fn new() -> Result<Signer, CxSyscallError> {
-        // cx_bn_lock(N_BYTES, 0)?; 
+        cx_bn_lock(N_BYTES, 0)?; 
 
         //gen secret_key
-        let private_key: Field = Field::new_rand()?;
+        let mut private_key: Field = Field::new_rand()?;
 
         // on génère la clef publique
         let mut public_key = Point::new_gen()?;
         public_key.mul_scalar(private_key)?;
 
-        let private_nonces: [Field; NB_NONCES as usize] = [Field::new()?; NB_NONCES as usize];
+        let mut private_nonces: [Field; NB_NONCES as usize] = [Field::new()?; NB_NONCES as usize];
 
-        let public_nonces: [Point; NB_NONCES as usize] =
+        let mut public_nonces: [Point; NB_NONCES as usize] =
             [Point::new_gen()?; NB_NONCES as usize];
-        let pubkeys: [Point; NB_PARTICIPANT as usize] =
+        let mut pubkeys: [Point; NB_PARTICIPANT as usize] =
             [Point::new()?; NB_PARTICIPANT as usize]; // à init différemment quand on a les clefs publiques de tous les speculos
-        let nonces: [[Point; NB_NONCES as usize]; NB_PARTICIPANT as usize] =
+        let mut nonces: [[Point; NB_NONCES as usize]; NB_PARTICIPANT as usize] =
             [[Point::new()?; NB_NONCES as usize]; NB_PARTICIPANT as usize];
 
-        let a: [Field; NB_PARTICIPANT as usize] = [Field::new()?; NB_PARTICIPANT as usize];
+        let mut a: [Field; NB_PARTICIPANT as usize] = [Field::new()?; NB_PARTICIPANT as usize];
 
-        let selfa = Field::new()?;
+        let mut selfa = Field::new()?;
 
-        let xtilde = Point::new()?;
-        let r_nonces: [Point; NB_NONCES as usize] =
+        let mut xtilde = Point::new()?;
+        let mut r_nonces: [Point; NB_NONCES as usize] =
             [Point::new()?; NB_NONCES as usize];
 
-        let b: Field = Field::new()?;
+        let mut b: Field = Field::new()?;
 
-        let rsign: Point = Point::new()?;
+        let mut rsign: Point = Point::new()?;
 
-        let c: Field = Field::new()?;
+        let mut c: Field = Field::new()?;
 
-        let selfsign: Field = Field::new()?;
+        let mut selfsign: Field = Field::new()?;
 
-        let sign: [Field; NB_PARTICIPANT as usize] = [Field::new()?; NB_PARTICIPANT as usize];
+        let mut sign: [Field; NB_PARTICIPANT as usize] = [Field::new()?; NB_PARTICIPANT as usize];
+
+        // // on libère la ram crypto, on chargera quand on aura besoin de calculer
+        // public_key.clear_crypto_ram()?;
+        // selfa.clear_crypto_ram()?;
+        // xtilde.clear_crypto_ram()?;
+        // b.clear_crypto_ram()?;
+        // selfsign.clear_crypto_ram()?;
+        // private_key.clear_crypto_ram()?;
+        // for i in 0..NB_NONCES {
+        //     public_nonces[i as usize].clear_crypto_ram()?;
+        //     r_nonces[i as usize].clear_crypto_ram()?;
+        //     private_nonces[i as usize].clear_crypto_ram()?;
+        //     for j in 0..NB_PARTICIPANT {
+        //         nonces[i as usize][j as usize].clear_crypto_ram()?;
+        //     }
+        // }
+        // for i in 0..NB_PARTICIPANT {
+        //     pubkeys[i as usize].clear_crypto_ram()?;
+        //     a[i as usize].clear_crypto_ram()?;
+        //     sign[i as usize].clear_crypto_ram()?;
+        // }
 
         Ok(Signer {
             public_key,
@@ -99,7 +120,9 @@ impl Signer {
             // idem nonces puliques et clefs publiques
 
             self.private_nonces[i as usize] = Field::new_rand()?;
+            self.private_nonces[i as usize].clear_crypto_ram()?;
             self.public_nonces[i as usize].mul_scalar(self.private_nonces[i as usize])?;
+            self.public_nonces[i as usize].clear_crypto_ram()?;
         }
         Ok(())
     }
@@ -126,6 +149,7 @@ impl Signer {
         let ind_joueur = data[0];
         for i in 0..NB_NONCES {
             self.nonces[ind_joueur as usize][i as usize] = Point::new_init(&data[(2 + i as usize + i as usize * 2 * N_BYTES as usize)..(2 + i as usize + (i as usize * 2 + 1) * N_BYTES as usize)], &data[(2 + i as usize + (i as usize * 2 + 1) * N_BYTES as usize)..(2 + i as usize + (i as usize * 2 + 2) * N_BYTES as usize)])?;
+            self.nonces[ind_joueur as usize][i as usize].clear_crypto_ram()?;
         }
         Ok(())
     }
