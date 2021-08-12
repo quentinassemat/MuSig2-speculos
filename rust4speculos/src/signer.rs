@@ -16,9 +16,24 @@ use hex_literal::hex;
 pub struct Signer {
     // éléments publiques
     pub public_key: Point,
+
+    //éléments secrets
+    private_key: Field,
+}
+
+// On fait deux struct temporaire de signer pour les deux round de MuSig2 (mem opt)
+pub struct Signer1 {
+    // éléments publiques
     pub public_nonces: [Point; NB_NONCES as usize],
     pub pubkeys: [Point; NB_PARTICIPANT as usize],
     pub nonces: [[Point; NB_NONCES as usize]; NB_PARTICIPANT as usize], //Vec[i][j] est le nonce j du signeur i
+
+    //éléments secrets
+    private_nonces: [Field; NB_NONCES as usize],
+}
+
+pub struct Signer2 {
+    // éléments publiques
     pub a: [Field; NB_PARTICIPANT as usize],
     pub selfa: Field,
     pub xtilde: Point,
@@ -30,7 +45,6 @@ pub struct Signer {
     pub sign: [Field; NB_PARTICIPANT as usize],
 
     //éléments secrets
-    private_key: Field,
     private_nonces: [Field; NB_NONCES as usize],
 }
 
@@ -46,69 +60,62 @@ impl Signer {
         let mut public_key = Point::new_gen()?;
         public_key.mul_scalar(private_key)?;
 
+        // on libère la ram crypto, on chargera quand on aura besoin de calculer
+        public_key.clear_crypto_ram()?;
+        private_key.clear_crypto_ram()?;
+
+        Ok(Signer {
+            public_key,
+            private_key,
+        })
+    }
+
+    // GETTERS EN APDU EXPORT 
+
+    pub fn get_pubkey(&self) -> Result<[u8; 65], CxSyscallError> {
+        Ok(self.public_key.export_apdu()?)
+    }
+}
+
+impl Signer1 {
+    pub fn new() -> Result<Signer1, CxSyscallError> {
+        
         let mut private_nonces: [Field; NB_NONCES as usize] = [Field::new()?; NB_NONCES as usize];
 
         let mut public_nonces: [Point; NB_NONCES as usize] =
             [Point::new_gen()?; NB_NONCES as usize];
-        let mut pubkeys: [Point; NB_PARTICIPANT as usize] =
-            [Point::new()?; NB_PARTICIPANT as usize]; // à init différemment quand on a les clefs publiques de tous les speculos
+
+        let x1 = hex!("23cdc4924412d491d0ed13272372e945ddd9886c32592f8ac9b7b37dcd8adc7d");
+        let y1 = hex!("20d88572e9fdbe872c1dbfbdb9921cb8d17af04a63b65646aa7bc29f42d16f41");
+        let pk1: Point = Point::new_init(&x1, &y1)?;
+        let x2 = hex!("79717b8ad6bd8efa41af00e682d97004be32738b54a30d2a0141eb2c2590baa0");
+        let y2 = hex!("bffee15e85c9be9478e34e251baa3a2e11aef8269d8b1a695ceb7ff177185fd8");
+        let pk2: Point = Point::new_init(&x2, &y2)?;
+
+        // initialisation de la liste des clefs publiques à la main avec les deux spéculos pour simulé qu'on les as déjà 
+        let mut pubkeys: [Point; NB_PARTICIPANT as usize] = [pk1, pk2]; // à init différemment quand on a les clefs publiques de tous les speculos
+        
+
         let mut nonces: [[Point; NB_NONCES as usize]; NB_PARTICIPANT as usize] =
-            [[Point::new()?; NB_NONCES as usize]; NB_PARTICIPANT as usize];
+        [[Point::new()?; NB_NONCES as usize]; NB_PARTICIPANT as usize];
 
-        let mut a: [Field; NB_PARTICIPANT as usize] = [Field::new()?; NB_PARTICIPANT as usize];
 
-        let mut selfa = Field::new()?;
+        // on libère la ram crypto, on chargera quand on aura besoin de calculer
+        for i in 0..NB_NONCES {
+            public_nonces[i as usize].clear_crypto_ram()?;
+            private_nonces[i as usize].clear_crypto_ram()?;
+            for j in 0..NB_PARTICIPANT {
+                nonces[i as usize][j as usize].clear_crypto_ram()?;
+            }
+        }
+        for i in 0..NB_PARTICIPANT {
+            pubkeys[i as usize].clear_crypto_ram()?;
+        }
 
-        let mut xtilde = Point::new()?;
-        let mut r_nonces: [Point; NB_NONCES as usize] =
-            [Point::new()?; NB_NONCES as usize];
-
-        let mut b: Field = Field::new()?;
-
-        let mut rsign: Point = Point::new()?;
-
-        let mut c: Field = Field::new()?;
-
-        let mut selfsign: Field = Field::new()?;
-
-        let mut sign: [Field; NB_PARTICIPANT as usize] = [Field::new()?; NB_PARTICIPANT as usize];
-
-        // // on libère la ram crypto, on chargera quand on aura besoin de calculer
-        // public_key.clear_crypto_ram()?;
-        // selfa.clear_crypto_ram()?;
-        // xtilde.clear_crypto_ram()?;
-        // b.clear_crypto_ram()?;
-        // selfsign.clear_crypto_ram()?;
-        // private_key.clear_crypto_ram()?;
-        // for i in 0..NB_NONCES {
-        //     public_nonces[i as usize].clear_crypto_ram()?;
-        //     r_nonces[i as usize].clear_crypto_ram()?;
-        //     private_nonces[i as usize].clear_crypto_ram()?;
-        //     for j in 0..NB_PARTICIPANT {
-        //         nonces[i as usize][j as usize].clear_crypto_ram()?;
-        //     }
-        // }
-        // for i in 0..NB_PARTICIPANT {
-        //     pubkeys[i as usize].clear_crypto_ram()?;
-        //     a[i as usize].clear_crypto_ram()?;
-        //     sign[i as usize].clear_crypto_ram()?;
-        // }
-
-        Ok(Signer {
-            public_key,
+        Ok(Signer1 {
             public_nonces,
             pubkeys,
             nonces,
-            a,
-            selfa,
-            xtilde,
-            r_nonces,
-            b,
-            rsign,
-            c,
-            selfsign,
-            sign,
-            private_key,
             private_nonces,
         })
     }
@@ -128,10 +135,6 @@ impl Signer {
     }
 
     // GETTERS EN APDU EXPORT 
-
-    pub fn get_pubkey(&self) -> Result<[u8; 65], CxSyscallError> {
-        Ok(self.public_key.export_apdu()?)
-    }
 
     pub fn get_public_nonces(&self) -> Result<[[u8;65]; NB_NONCES as usize], CxSyscallError> {
         let init: [u8; 65] = [0; 65];
@@ -154,11 +157,24 @@ impl Signer {
         Ok(())
     }
 
-    //FONCTIONS DE CALCUL DU SIGNEUR
+    // calcul de la prochaine struct
+    pub fn next_round(self) -> Result<Signer2, CxSyscallError> {
 
-    //fonction calcul des ai
-    pub fn a(&mut self) -> Result<[Field ; NB_PARTICIPANT as usize], CxSyscallError> {
+
+        // calcul des r_nonces
+        let mut r_nonces: [Point; NB_NONCES as usize] = [Point::new()?; NB_NONCES as usize];
+        for j in 0..NB_NONCES {
+            let mut temp = self.nonces[0 as usize][j as usize];
+            for i in 1..NB_PARTICIPANT {
+                temp = temp.add(self.nonces[i as usize][j as usize])? ;
+            }
+            r_nonces[j as usize] = temp;
+        }
+
+
+        // calcul des ai
         let mut a: [Field ; NB_PARTICIPANT as usize] = [Field::new()? ; NB_PARTICIPANT as usize];
+        let mut selfa : Field::new()?;
         for i in 0..NB_PARTICIPANT {
             let mut hash = Hash::new()?;
 
@@ -184,43 +200,21 @@ impl Signer {
 
             a[i as usize] = Field::new_init(&ai_bytes)?;
             if self.pubkeys[i as usize] == self.public_key {
-                self.selfa = Field::new_init(&ai_bytes)?;
+                selfa = Field::new_init(&ai_bytes)?;
             }
         }
-        Ok(a)
-    }
 
-    //fonction de calcul de x_tilde :
-    pub fn xtilde(&self) -> Result<Point, CxSyscallError> {
+        // calcul du xtilde
         let mut xtilde = self.pubkeys[0 as usize];
-        xtilde.mul_scalar(self.a[0 as usize])?;
+        xtilde.mul_scalar(a[0 as usize])?;
         for i in 1..NB_PARTICIPANT {
             let mut add = self.pubkeys[i as usize];
-            add.mul_scalar(self.a[i as usize])?;
+            add.mul_scalar(a[i as usize])?;
             xtilde.add(add)?;
         }
-        Ok(xtilde)
-    }
 
-    //fonction de calcul de r_nonces :
-    pub fn r_nonces(&self) -> Result<[Point; NB_NONCES as usize], CxSyscallError> {
-        let mut r_nonces: [Point; NB_NONCES as usize] = [Point::new()?; NB_NONCES as usize];
-        for j in 0..NB_NONCES {
-            let mut temp = self.nonces[0 as usize][j as usize];
-            for i in 1..NB_PARTICIPANT {
-                temp = temp.add(self.nonces[i as usize][j as usize])? ;
-            }
-            r_nonces[j as usize] = temp;
-        }
-        Ok(r_nonces)
-    }
 
-    //fonction de calcul de b :
-    pub fn b(&self) -> Result<Field, CxSyscallError> {
-        let b_bytes: [u8; N_BYTES as usize] =
-        hex!("00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001"); // = 1
-        let b: Field = Field::new_init(&b_bytes)?;
-
+        // calcul de b
         let mut hash = Hash::new()?;
 
         //on construit les bytes qui servent pour le hash
@@ -250,11 +244,9 @@ impl Signer {
 
         //On construit le Scalar qui corrrespond   
         let b = Field::new_init(&b_bytes)?;
-        Ok(b)
-    }
 
-    //fonction de calcul de R:
-    pub fn rsign(&self) -> Result<Point, CxSyscallError> {
+
+        //calcul de rsign
         let mod_bytes: [u8; N_BYTES as usize] =
             hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
         let modulo: Field = Field::new_init(&mod_bytes)?;
@@ -267,11 +259,9 @@ impl Signer {
             rsign = rsign.add(mul)?;
             temp_b = temp_b.mul(self.b, modulo)?;
         }
-        Ok(rsign)
-    }
 
-    //fonction de calcul de c:
-    pub fn c(&self) -> Result<Field, CxSyscallError> {
+
+        //calcul de c 
         let mut hash = Hash::new()?;
         let mut bytes: [u8; 2 * N_BYTES as usize + M.as_bytes().len()] = [0; 2 * N_BYTES as usize + M.as_bytes().len()];
         let x = self.xtilde.x_affine()?;
@@ -290,9 +280,30 @@ impl Signer {
         hash.update(&bytes, bytes.len() as u32)?;
         let c_bytes = hash.digest()?;
         let c = Field::new_init(&c_bytes)?;
-        Ok(c)
+
+        //init de sign et selfsign
+
+        let sign = [Field::new()?; NB_PARTICIPANT as usize];
+        let selfsign = Field::new()?;
+        
+        //reste la mem opti à faire 
+        Ok(Signer2 {
+            a, ok
+            selfa, ok 
+            xtilde,
+            r_nonces, ok
+            b, ok
+            rsign, ok
+            c, ok
+            selfsign,
+            sign,
+            private_nonces = self.private_nonces,
+        })
     }
 
+}
+
+impl Signer2 {
     //fonction de calcul de sign :
     pub fn selfsign(&self) -> Result<Field, CxSyscallError> {
 
@@ -320,7 +331,7 @@ impl Signer {
         }
         Ok(signature)
     }
-
+    
     //fonction de vérif :
     pub fn verif(&self) -> Result<bool, CxSyscallError> {
         let signature = self.signature()?;
@@ -330,5 +341,5 @@ impl Signer {
         xtilde_copy.mul_scalar(self.c)?;
         Ok(gen == self.rsign.add(xtilde_copy)?)
     }
-}
 
+}

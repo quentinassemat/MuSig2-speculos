@@ -33,6 +33,8 @@ MEM = 16496 # mémoire nécessaire pour communiquer les infos durant les étapes
 PUBKEYS_BIN = [unhexlify(b'0423cdc4924412d491d0ed13272372e945ddd9886c32592f8ac9b7b37dcd8adc7d20d88572e9fdbe872c1dbfbdb9921cb8d17af04a63b65646aa7bc29f42d16f41'), unhexlify(b'0479717b8ad6bd8efa41af00e682d97004be32738b54a30d2a0141eb2c2590baa0bffee15e85c9be9478e34e251baa3a2e11aef8269d8b1a695ceb7ff177185fd8')]
 PUBKEYS = [bytes_to_point(b) for b in PUBKEYS_BIN]
 
+print(PUBKEYS)
+
 SOCKETS  = [getDongleTCP(port=PORTS[i]) for i in range(nb_participant)]
 
 print("Les sockets est bind, nous pouvons commencer")

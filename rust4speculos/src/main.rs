@@ -78,8 +78,6 @@ fn show_pubkey(s: &mut Signer) -> Result<(), CxSyscallError> {
 #[cfg(not(test))]
 extern "C" fn sample_main() {
     let mut comm = io::Comm::new();
-    comm.reply_ok();
-    nanos_sdk::debug_print("tes");
     let mut s: Signer = Signer::new().unwrap();
     loop {
         // Draw some 'welcome' screen
