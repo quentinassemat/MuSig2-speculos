@@ -217,6 +217,18 @@ pub fn cx_bn_destroy(mut x: CxBn) -> Result<(), CxSyscallError> {
     }
 }
 
+pub fn cx_bn_cmp(a: CxBn, b: CxBn, mut diff: i32) -> Result<(), CxSyscallError> {
+    let err = unsafe { bindings::cx_bn_cmp(a.x, b.x, &mut diff as *mut i32) };
+    if err != 0 {
+        let cx_err: CxSyscallError = err.into();
+        nanos_sdk::debug_print("err cx_bn_cmp\n");
+        cx_err.show();
+        Err(cx_err)
+    } else {
+        Ok(())
+    }
+}
+
 // WRAPPERS AUTOUR DES EC POINT DU SDK
 
 pub fn cx_ecpoint_alloc(
@@ -350,7 +362,7 @@ pub fn cx_ecpoint_is_at_infinity(
 }
 
 pub fn cx_ecpoint_destroy(p: &mut bindings::cx_ecpoint_t) -> Result<(), CxSyscallError> {
-    let err = unsafe { bindings::cx_ecpoint_destroy(p as *mut bindings::cx_ec_point_s)};
+    let err = unsafe { bindings::cx_ecpoint_destroy(p as *mut bindings::cx_ec_point_s) };
     if err != 0 {
         let cx_err: CxSyscallError = err.into();
         nanos_sdk::debug_print("err cx_ecpoint_destroy\n");

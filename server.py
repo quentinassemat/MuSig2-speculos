@@ -94,7 +94,6 @@ for i in range(nb_participant):
         for v in range(nb_nonces):
             nonces_to_send_bytes += point_to_bytes(R[j][v])
         cmd = unhexlify(CMDS[4]) + (j).to_bytes(1, 'big') + nonces_to_send_bytes # demande des publics nonces
-        print(len(cmd))
         r = None
         try: 
             r = SOCKETS[i].exchange(cmd)
@@ -107,36 +106,8 @@ for i in range(nb_participant):
                 SOCKETS[k].exchange(cmd)
             sys.exit(1)
 
-for i in range(nb_participant):
-    SOCKETS[i].close()
+print("ok")
 
+# for i in range(nb_participant):
+#     SOCKETS[i].close()
 
-
-
-
-# ANSWER = []
-# for i in range(len(CMDS)):
-#     cmd = unhexlify(CMDS[i])
-#     # print(cmd)
-#     r = None
-#     try:
-#         r = d.exchange(cmd)
-#         sleep(1)
-#     except Exception as e:
-#         print("test")
-#         print(e)
-#     if r is not None:
-#         # print("Response hex : ", hexlify(r))
-#         # ANSWER.append(int.from_bytes(r, 'big'))
-#         if (i == len(CMDS) - 1):
-#             ANSWER.append(bytes_to_point(r))
-#         else:
-#             if r == None:
-#                 ANSWER.append("cancelled")
-#             else :
-#                 ANSWER.append(int.from_bytes(r, 'big') % n)
-#     sleep(0.1)
-
-# print(f"On obtient le résultat suivant : {ANSWER}")
-# d.close()
- 
