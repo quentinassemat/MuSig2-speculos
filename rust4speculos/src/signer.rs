@@ -245,6 +245,7 @@ impl Signer1 {
     
             nanos_sdk::debug_print("debug6");
             let x = (xtilde.x_affine()?).into_ram()?;
+            nanos_sdk::debug_print("debug61");
             let fill = x.bytes;
             for k in 0..N_BYTES {
                 bytes[k as usize] = fill[k as usize];
