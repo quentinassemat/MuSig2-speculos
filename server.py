@@ -7,6 +7,8 @@ from binascii import hexlify, unhexlify
 from time import sleep
 from tools import *
 
+print(G)
+
 #Paramètres pour la signature
 nb_participant = 2 # pour l'instant on fait avec 2 participants
 # try: 

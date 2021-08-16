@@ -6,6 +6,7 @@ use crate::utils;
 use core::str::from_utf8;
 use nanos_sdk::bindings;
 use nanos_ui::ui;
+use hex_literal::hex;
 
 // CONSTANTES UTILES
 
@@ -24,7 +25,12 @@ pub struct FieldBytes {
 }
 
 impl FieldBytes {
-    pub fn new(init: &[u8]) -> Result<FieldBytes, CxSyscallError> {
+    pub fn new() -> Result<FieldBytes, CxSyscallError> {
+        let bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
+        Ok(FieldBytes { bytes })
+    }
+
+    pub fn new_init(init: &[u8]) -> Result<FieldBytes, CxSyscallError> {
         let mut bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
         for i in 0..N_BYTES {
             bytes[i as usize] = init[i as usize];
@@ -172,14 +178,14 @@ impl Field {
 
     // memory optimisation
 
-    pub fn into_ram(mut self) -> Result<FieldBytes, CxSyscallError> {
+    pub fn into_ram(self) -> Result<FieldBytes, CxSyscallError> {
         let mut bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
         cx_bn_export(self.index, &mut bytes)?;
         cx_bn_destroy(self.index)?;
         Ok(FieldBytes { bytes })
     }
 
-    pub fn destroy(mut self) -> Result<(), CxSyscallError> {
+    pub fn destroy(self) -> Result<(), CxSyscallError> {
         cx_bn_destroy(self.index)?;
         Ok(())
     }
@@ -187,7 +193,7 @@ impl Field {
 
 impl PartialEq for Field {
     fn eq(&self, other: &Self) -> bool {
-        let mut diff = 0;
+        let diff = 0;
         cx_bn_cmp(self.index, other.index, diff).unwrap();
         diff == 0
     }
@@ -200,6 +206,22 @@ pub struct PointBytes {
 }
 
 impl PointBytes {
+    pub fn new_gen() -> Result<PointBytes, CxSyscallError> {
+        let x_bytes: [u8; N_BYTES as usize] = hex!("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
+        let y_bytes: [u8; N_BYTES as usize] = hex!("483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8");
+        Ok(PointBytes{x_bytes, y_bytes})
+    }
+
+    pub fn new_init(x: &[u8], y: &[u8]) -> Result<PointBytes, CxSyscallError> {
+        let mut x_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
+        let mut y_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
+        for i in 0..N_BYTES {
+            x_bytes[i as usize] = x[i as usize];
+            y_bytes[i as usize] = y[i as usize];
+        }
+        Ok(PointBytes{x_bytes, y_bytes})
+    }
+
     // into crypto ram
 
     pub fn into_crypto_ram(self) -> Result<Point, CxSyscallError> {
@@ -231,6 +253,22 @@ impl PointBytes {
             ui::MessageScroller::new(m).event_loop();
         }
         Ok(())
+    }
+
+    pub fn export_apdu(&self) -> Result<[u8; 2 * N_BYTES as usize + 1], CxSyscallError> {
+        let mut bytes = [0u8; 65];
+        bytes[0] = 4;
+        for i in 0..N_BYTES {
+            bytes[i as usize + 1_usize] = self.x_bytes[i as usize];
+            bytes[i as usize + 1_usize + N_BYTES as usize] = self.y_bytes[i as usize];
+        }
+        Ok(bytes)
+    }
+}
+
+impl PartialEq for PointBytes {
+    fn eq(&self, other: &Self) -> bool {
+        (self.x_bytes == other.x_bytes) && (self.y_bytes == other.y_bytes)
     }
 }
 
@@ -344,7 +382,7 @@ impl Point {
         Ok(x)
     }
 
-    pub fn y_affine(&self) -> Result<Field, CxSyscallError> {
+    pub fn y_affine(&self) -> Result<Field,  CxSyscallError> {
         let (_x, y) = self.coords()?;
         Ok(y)
     }

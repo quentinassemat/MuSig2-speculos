@@ -22,15 +22,11 @@ use crate::data_types::*;
 use crate::signer::*;
 
 use nanos_sdk::buttons::ButtonEvent;
-use nanos_sdk::exit_app;
 use nanos_sdk::io;
-use nanos_sdk::io::Reply;
-use nanos_sdk::TestType;
 use nanos_ui::ui;
+use nanos_sdk::io::Reply;
 
 use core::str::from_utf8;
-
-use hex_literal::hex;
 
 pub const N_BYTES: u32 = 32;
 
@@ -86,6 +82,7 @@ extern "C" fn sample_main() {
     let mut s: Signer = Signer::new().unwrap();
     loop {
         // Draw some 'welcome' screen
+
         ui::SingleMessage::new("Welcome MuSig2").show();
         // Wait for either a specific button push to exit the app
         // or an APDU command
