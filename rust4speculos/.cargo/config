@@ -1,7 +1,7 @@
 [target.thumbv6m-none-eabi]
 rustflags = [ 
   "-C", "relocation-model=ropi",
-  "-C", "link-arg=-Tscript.ld",
+  "-C", "link-arg=-Tscript_more_ram.ld",
 ]
 runner = "speculos.py --display headless -k 2.0"
 
