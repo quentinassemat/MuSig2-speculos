@@ -47,6 +47,15 @@ impl FieldBytes {
         Ok(())
     }
 
+    pub fn debug_show(&self) -> Result<(), CxSyscallError> {
+        let hex = utils::to_hex(&self.bytes).map_err(|_| CxSyscallError::Overflow)?;
+        let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
+        nanos_sdk::debug_print("value : ");
+        nanos_sdk::debug_print(m);
+        nanos_sdk::debug_print("\n");
+        Ok(())
+    }
+
     // into crypto ram
 
     pub fn into_crypto_ram(self) -> Result<Field, CxSyscallError> {
@@ -251,6 +260,24 @@ impl PointBytes {
             let hex = utils::to_hex(&self.y_bytes).map_err(|_| CxSyscallError::Overflow)?;
             let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
             ui::MessageScroller::new(m).event_loop();
+        }
+        Ok(())
+    }
+
+    pub fn debug_show(&self) -> Result<(), CxSyscallError> {
+        {
+            let hex = utils::to_hex(&self.x_bytes).map_err(|_| CxSyscallError::Overflow)?;
+            let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
+            nanos_sdk::debug_print("x : ");
+            nanos_sdk::debug_print(m);
+            nanos_sdk::debug_print("\n");
+        }
+        {
+            let hex = utils::to_hex(&self.y_bytes).map_err(|_| CxSyscallError::Overflow)?;
+            let m = from_utf8(&hex).map_err(|_| CxSyscallError::InvalidParameter)?;
+            nanos_sdk::debug_print("y : ");
+            nanos_sdk::debug_print(m);
+            nanos_sdk::debug_print("\n");
         }
         Ok(())
     }

@@ -108,12 +108,39 @@ fn sign_musig_2(
     s: &mut Signer,
 ) -> Result<Option<[u8; N_BYTES as usize]>, CxSyscallError> {
     // fonction renvoie la signature en binaire
-    // on envoie pas les clefs publiques, les autres sont censées les avoir (speculos génère toujours les mêmes de tout façon)
-    // on les affiches dans le debug pour les rentrer dans le python
 
     let mut s1 = Signer1::new(s)?;
 
-    // on est censé déjà avoir les clefs publiques des autres donc on les reçoit pas
+    // reception des clefs publiques des autres (nous sommes censées déjà les avoir dans l'app)
+
+
+    {
+        // réception des clefs publiques de la part du server
+        comm.reply_ok();
+        loop {
+            // Draw some 'Waiting ...' screen
+            ui::SingleMessage::new("Recep pubkeys ...").show();
+            // Wait for a valid instruction
+            match comm.next_event() {
+                io::Event::Command(ins) => match ins {
+                    Ins::SendPubkeys => {
+                        match comm.get_data() {
+                            Ok(data) => {
+                                s1.recep_pubkeys(data)?;
+                                comm.reply_ok();
+                            }
+                            Err(e) => {
+                                nanos_sdk::debug_print("badlen\n");
+                            }
+                        }
+                        break;
+                    }
+                    _ => (),
+                },
+                _ => (),
+            }
+        }
+    }
 
     //génération private nonces
     {
@@ -143,11 +170,6 @@ fn sign_musig_2(
         }
     }
     
-    // bizarre cet affichage marche pas mais après oui
-    // let test = (s1.nonces[0][0]).into_ram()?;
-
-    // test.show()?;
-
     {
         // réception des nonces de la part du server
 
@@ -178,18 +200,71 @@ fn sign_musig_2(
         }
     }
 
-    // let test2 = (s1.nonces[0][0]).into_ram()?;
+    let mut s2 = s1.next_round()?;
 
-    // test2.show()?;
+    {
+    //mode attente et envoie des privates nonces au server
+        let sign = s2.get_sign()?;
+        loop {
+            // Draw some 'Sending nonces ...' screen
+            ui::SingleMessage::new("Sending signatures ...").show();
+            // Wait for a valid instruction
+            match comm.next_event() {
+                io::Event::Command(ins) => match ins {
+                    Ins::SendSignatures => {
+                        comm.append(&sign);
+                        comm.reply_ok();
+                        break;
+                    }
+                    _ => (),
+                },
+                _ => (),
+            }
+        }
+    }
 
-    let s2 = s1.next_round()?;
+    {
+        // réception des nonces de la part du server
 
+        loop {
+            // Draw some 'Waiting ...' screen
+            ui::SingleMessage::new("Recep signatures ...").show();
+            // Wait for a valid instruction
+            match comm.next_event() {
+                io::Event::Command(ins) => match ins {
+                    Ins::RecepSignatures => {
+                        match comm.get_data() {
+                            Ok(data) => {
+                                s2.recep_signs(data)?;
+                                comm.reply_ok();
+                            }
+                            Err(e) => {
+                                nanos_sdk::debug_print("badlen\n");
+                            }
+                        }
+                        break;
+                    }
+                    _ => (),
+                },
+                _ => (),
+            }
+        }
+    }
 
+    {
+        let valid = s2.verif()?;
+        if valid {
+            ui::popup("True :)");
+        }
+        else {
+            ui::popup("False :(");
+        }
+    }
 
     // pour avoir le bon return tant que le programme n'est pas complet
     {
-        let fake_sign: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
-        Ok(Some(fake_sign))
+        let sign = s2.signature()?;
+        Ok(Some(sign.bytes))
     }
 }
 
@@ -202,6 +277,9 @@ enum Ins {
     SignMuSig2,
     SendNonces,
     RecepNonces,
+    SendSignatures,
+    RecepSignatures,
+    SendPubkeys,
     ShowPrivateKey,
     Exit,
 }
@@ -214,6 +292,9 @@ impl From<u8> for Ins {
             2 => Ins::SignMuSig2,
             3 => Ins::SendNonces,
             4 => Ins::RecepNonces,
+            5 => Ins::SendSignatures,
+            6 => Ins::RecepSignatures,
+            7 => Ins::SendPubkeys,
             0xfe => Ins::ShowPrivateKey,
             0xff => Ins::Exit,
             _ => panic!(),

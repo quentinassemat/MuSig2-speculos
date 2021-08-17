@@ -86,16 +86,15 @@ impl Signer1 {
         let public_key = s.public_key;
         let private_key = s.private_key;
 
-        let x1 = hex!("23cdc4924412d491d0ed13272372e945ddd9886c32592f8ac9b7b37dcd8adc7d");
-        let y1 = hex!("20d88572e9fdbe872c1dbfbdb9921cb8d17af04a63b65646aa7bc29f42d16f41");
-        let pk1: PointBytes = PointBytes::new_init(&x1, &y1)?;
+        // let x1 = hex!("23cdc4924412d491d0ed13272372e945ddd9886c32592f8ac9b7b37dcd8adc7d");
+        // let y1 = hex!("20d88572e9fdbe872c1dbfbdb9921cb8d17af04a63b65646aa7bc29f42d16f41");
+        // let pk1: PointBytes = PointBytes::new_init(&x1, &y1)?;
 
-        let x2 = hex!("79717b8ad6bd8efa41af00e682d97004be32738b54a30d2a0141eb2c2590baa0");
-        let y2 = hex!("bffee15e85c9be9478e34e251baa3a2e11aef8269d8b1a695ceb7ff177185fd8");
-        let pk2: PointBytes = PointBytes::new_init(&x2, &y2)?;
+        // let x2 = hex!("79717b8ad6bd8efa41af00e682d97004be32738b54a30d2a0141eb2c2590baa0");
+        // let y2 = hex!("bffee15e85c9be9478e34e251baa3a2e11aef8269d8b1a695ceb7ff177185fd8");
+        // let pk2: PointBytes = PointBytes::new_init(&x2, &y2)?;
 
-        // initialisation de la liste des clefs publiques à la main avec les deux spéculos pour simulé qu'on les as déjà
-        let pubkeys: [PointBytes ; NB_PARTICIPANT as usize] = [pk1, pk2]; // à init différemment quand on a les clefs publiques de tous les speculos
+        let pubkeys: [PointBytes ; NB_PARTICIPANT as usize] = [PointBytes::new_gen()?; NB_PARTICIPANT as usize]; 
 
         let nonces: [[PointBytes; NB_NONCES as usize]; NB_PARTICIPANT as usize] =
             [[PointBytes::new_gen()?; NB_NONCES as usize]; NB_PARTICIPANT as usize];
@@ -118,8 +117,11 @@ impl Signer1 {
             let private_nonce = Field::new_rand()?;
             let mut public_nonce = Point::new_gen()?;
             public_nonce.mul_scalar(private_nonce)?;
+            nanos_sdk::debug_print("private/public nonces : \n");
             self.private_nonces[i as usize] = private_nonce.into_ram()?;
+            self.private_nonces[i as usize].debug_show()?;
             self.public_nonces[i as usize] = public_nonce.into_ram()?;
+            self.public_nonces[i as usize].debug_show()?;
         }
         Ok(())
     }
@@ -147,14 +149,42 @@ impl Signer1 {
                 &data[(2 + i as usize + (i as usize * 2 + 1) * N_BYTES as usize)
                     ..(2 + i as usize + (i as usize * 2 + 2) * N_BYTES as usize)],
             )?;
+            nanos_sdk::debug_print("nonces : \n");
+            self.nonces[ind_joueur as usize][i as usize].debug_show()?;
+        }
+        Ok(())
+    }
+
+    pub fn recep_pubkeys(&mut self, data: &[u8]) -> Result<(), CxSyscallError> {
+        for i in 0..NB_PARTICIPANT {
+            self.pubkeys[i as usize] = PointBytes::new_init(
+                &data[(1 + i as usize + i as usize * 2 * N_BYTES as usize)
+                    ..(1 + i as usize + (i as usize * 2 + 1) * N_BYTES as usize)],
+                &data[(1 + i as usize + (i as usize * 2 + 1) * N_BYTES as usize)
+                    ..(1 + i as usize + (i as usize * 2 + 2) * N_BYTES as usize)],
+            )?;
+            nanos_sdk::debug_print("pubkeys : \n");
+            self.pubkeys[i as usize].debug_show()?;
         }
         Ok(())
     }
 
     // calcul de la prochaine struct
     pub fn next_round(self) -> Result<Signer2, CxSyscallError> {
-        nanos_sdk::debug_print("debug1");
+
+        nanos_sdk::debug_print("private key : \n");
+        self.private_key.debug_show()?;
+
+        nanos_sdk::debug_print("public key: \n");
+        self.public_key.debug_show()?;
+        // pour les calculs
+
+        let mod_bytes: [u8; N_BYTES as usize] = hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes)?;
+
         // calcul des r_nonces
+        nanos_sdk::debug_print("r_nonces : \n");
+
         let mut r_nonces: [PointBytes; NB_NONCES as usize] = [PointBytes::new_gen()?; NB_NONCES as usize];
 
         for j in 0..NB_NONCES {
@@ -162,14 +192,18 @@ impl Signer1 {
             let mut temp = copy.into_crypto_ram()?;
             for i in 1..NB_PARTICIPANT {
                 copy = self.nonces[i as usize][j as usize];
-                temp = temp.add(copy.into_crypto_ram()?)?;
+                let add = copy.into_crypto_ram()?;
+                temp = temp.add(add)?;
+                add.destroy()?;
             }
             r_nonces[j as usize] = temp.into_ram()?;
+            r_nonces[j as usize].debug_show()?;
+
         }
 
-        nanos_sdk::debug_print("debug3");
-
         // calcul des ai
+        nanos_sdk::debug_print("ai : \n");
+
         let mut a: [FieldBytes; NB_PARTICIPANT as usize] = [FieldBytes::new()?; NB_PARTICIPANT as usize];
         let mut selfa = FieldBytes::new()?;
         for i in 0..NB_PARTICIPANT {
@@ -197,27 +231,37 @@ impl Signer1 {
             a[i as usize] = FieldBytes::new_init(&ai_bytes)?;
             if self.pubkeys[i as usize] == self.public_key {
                 selfa = FieldBytes::new_init(&ai_bytes)?;
+                selfa.debug_show()?;
             }
+            a[i as usize].debug_show()?;
         }
 
-
-        nanos_sdk::debug_print("debug4");
-
         // calcul du xtilde
+
+        nanos_sdk::debug_print("xtilde : \n");
+
         let copy = self.pubkeys[0 as usize];
         let mut xtilde_crypto = copy.into_crypto_ram()?;
         let copy = a[0 as usize];
-        xtilde_crypto.mul_scalar(copy.into_crypto_ram()?)?;
+        let mul = copy.into_crypto_ram()?;
+        xtilde_crypto.mul_scalar(mul)?;
+        mul.destroy()?;
         for i in 1..NB_PARTICIPANT {
             let copy = self.pubkeys[i as usize];
             let mut add = copy.into_crypto_ram()?;
             let copy = a[i as usize];
-            add.mul_scalar(copy.into_crypto_ram()?)?;
-            xtilde_crypto.add(add)?;
+            let ai = copy.into_crypto_ram()?;
+            add.mul_scalar(ai)?;
+            xtilde_crypto = xtilde_crypto.add(add)?;
+            add.destroy()?;
+            ai.destroy()?;
         }
         let xtilde = xtilde_crypto.into_ram()?;
+        xtilde.debug_show()?;
 
         // calcul de b
+        nanos_sdk::debug_print("b : \n");
+
         let mut b = FieldBytes::new()?;
         {
             let mut hash = Hash::new()?;
@@ -227,24 +271,20 @@ impl Signer1 {
                 + M.as_bytes().len()] =
                 [0; (NB_NONCES as usize + 1_usize) * N_BYTES as usize + M.as_bytes().len()];
     
-            nanos_sdk::debug_print("debug6");
             let fill = xtilde.x_bytes;
             for k in 0..N_BYTES {
                 bytes[k as usize] = fill[k as usize];
             }
-            nanos_sdk::debug_print("debug7");
             for j in 0..NB_NONCES {
                 let fill = r_nonces[j as usize].x_bytes;
                 for k in 0..N_BYTES {
                     bytes[((j as usize + 1) * N_BYTES as usize) + k as usize] = fill[k as usize];
                 }
             }
-            nanos_sdk::debug_print("debug8");
             for k in 0..M.as_bytes().len() {
                 bytes[(NB_NONCES as usize + 1_usize) * N_BYTES as usize + k as usize] =
                     M.as_bytes()[k as usize];
             }
-            nanos_sdk::debug_print("debug9");
             //on le met dans le hash
             hash.update(&bytes, bytes.len() as u32)?;
             let b_bytes: [u8; 32] = hash.digest()?;
@@ -252,15 +292,17 @@ impl Signer1 {
             //On construit le Scalar qui corrrespond
             b = FieldBytes::new_init(&b_bytes)?;
         }
+        b.debug_show()?;
         
 
         //calcul de rsign
+
+        nanos_sdk::debug_print("rsign : \n");
+
         let mut rsign = PointBytes::new_gen()?;
         {
             let copy_rsign = r_nonces[0 as usize];
             let mut rsign_crypto = copy_rsign.into_crypto_ram()?;
-            let mod_bytes: [u8; N_BYTES as usize] = hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
-            let modulo: Field = Field::new_init(&mod_bytes)?;
 
             let b_copy = b;
             let mut temp_b: Field = b_copy.into_crypto_ram()?;
@@ -272,27 +314,30 @@ impl Signer1 {
                 mul.mul_scalar(temp_b)?;
                 rsign_crypto = rsign_crypto.add(mul)?;
                 temp_b = temp_b.mul(b_crypto, modulo)?;
+                mul.destroy()?;
             }
             rsign = rsign_crypto.into_ram()?;
+
+            //destroy
+            temp_b.destroy()?;
+            b_crypto.destroy()?;
         }
+        rsign.debug_show()?;
 
-
-        nanos_sdk::debug_print("debug6");
 
         //calcul de c
+
+        nanos_sdk::debug_print("c : \n");
+
         let mut c = FieldBytes::new()?;
-        nanos_sdk::debug_print("debug60");
         {
             let mut hash = Hash::new()?;
-            nanos_sdk::debug_print("debug60b");
             let mut bytes: [u8; 2 * N_BYTES as usize + M.as_bytes().len()] =
                 [0; 2 * N_BYTES as usize + M.as_bytes().len()];
-            nanos_sdk::debug_print("debug61");
             let fill = xtilde.x_bytes;
             for k in 0..N_BYTES {
                 bytes[k as usize] = fill[k as usize];
             }
-            nanos_sdk::debug_print("debug62");
             let fill = rsign.x_bytes;
             for k in 0..N_BYTES {
                 bytes[k as usize + N_BYTES as usize] = fill[k as usize];
@@ -300,17 +345,52 @@ impl Signer1 {
             for k in 0..M.as_bytes().len() {
                 bytes[2 * N_BYTES as usize + k as usize] = M.as_bytes()[k as usize];
             }
-            nanos_sdk::debug_print("debug64");
             hash.update(&bytes, bytes.len() as u32)?;
             let c_bytes = hash.digest()?;
             c = FieldBytes::new_init(&c_bytes)?;
         }
-        nanos_sdk::debug_print("debug7");
+        c.debug_show()?;
 
-        //init de sign et selfsign
+        //calcul de selfsign
+        nanos_sdk::debug_print("selfsign : \n");
+
+        let mut selfsign = FieldBytes::new()?;
+        {
+            let b_copy = b;
+            let mut temp_b = b_copy.into_crypto_ram()?; 
+            let b_copy = b;
+            let b_crypto = b_copy.into_crypto_ram()?; 
+            let mut copy = self.private_nonces[0 as usize];
+            let mut temp = copy.into_crypto_ram()?;
+            for j in 1..NB_NONCES {
+                copy = self.private_nonces[j as usize];
+                let mut mul = copy.into_crypto_ram()?;
+                mul = mul.mul(temp_b, modulo)?;
+                temp = temp.add(mul, modulo)?;
+                temp_b = temp_b.mul(b_crypto, modulo)?;
+            }
+            let pk_copy = self.private_key;
+            let sa_copy = selfa;
+            let c_copy = c;
+            let mut mul = c_copy.into_crypto_ram()?;
+            mul = mul.mul(sa_copy.into_crypto_ram()?, modulo)?;
+            mul = mul.mul(pk_copy.into_crypto_ram()?, modulo)?;
+            selfsign = (mul.add(temp, modulo)?).into_ram()?;
+
+            //destroy
+            temp.destroy()?;
+            temp_b.destroy()?;
+            b_crypto.destroy()?;
+        }
+
+        selfsign.debug_show()?;
+
+        //init de sign
 
         let sign = [FieldBytes::new()?; NB_PARTICIPANT as usize];
-        let selfsign = FieldBytes::new()?;
+
+        //destroy
+        modulo.destroy()?;
 
         Ok(Signer2 {
             a,
@@ -329,62 +409,57 @@ impl Signer1 {
 }
 
 impl Signer2 {
-//     //fonction de calcul de sign :
-//     pub fn selfsign(&self) -> Result<Field, CxSyscallError> {
-//         let mod_bytes: [u8; N_BYTES as usize] =
-//             hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
-//         let modulo: Field = Field::new_init(&mod_bytes)?;
+    pub fn get_sign(&self) -> Result<[u8; N_BYTES as usize], CxSyscallError> {
+        Ok(self.selfsign.bytes)
+    }
 
-//         let mut temp_b: Field = self.b;
-//         let mut temp = self.private_nonces[0 as usize];
-//         for j in 1..NB_NONCES {
-//             temp = temp.add(self.private_nonces[j as usize].mul(temp_b, modulo)?, modulo)?;
-//             temp_b = temp_b.mul(self.b, modulo)?;
-//         }
-//         Ok((self
-//             .c
-//             .mul(self.selfa.mul(self.private_key, modulo)?, modulo)?)
-//         .add(temp, modulo)?)
-//     }
+    pub fn recep_signs(&mut self, data: &[u8]) -> Result<(), CxSyscallError> {
+        for i in 0..NB_PARTICIPANT {
+            self.sign[i as usize] = FieldBytes::new_init(&data[(i as usize * N_BYTES as usize)
+            ..((i as usize + 1_usize) * N_BYTES as usize)])?;
+        }
+        Ok(())
+    }
 
-//     pub fn signature(&self) -> Result<Field, CxSyscallError> {
-//         let mod_bytes: [u8; N_BYTES as usize] =
-//             hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
-//         let modulo: Field = Field::new_init(&mod_bytes)?;
+    pub fn signature(&self) -> Result<FieldBytes, CxSyscallError> {
+        let mod_bytes: [u8; N_BYTES as usize] =
+            hex!("FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141"); // mod = FFFFFFFF FFFFFFFF FFFFFFFF FFFFFFFE BAAEDCE6 AF48A03B BFD25E8C D0364141
+        let modulo: Field = Field::new_init(&mod_bytes)?;
 
-//         let mut signature = self.sign[0 as usize];
-//         for i in 1..NB_PARTICIPANT {
-//             signature = signature.add(self.sign[i as usize], modulo)?;
-//         }
-//         Ok(signature)
-//     }
+        let mut copy = self.sign[0 as usize];
+        let mut sign_crypto = copy.into_crypto_ram()?;
 
-//     //fonction de vérif :
-//     pub fn verif(&self) -> Result<bool, CxSyscallError> {
-//         let signature = self.signature()?;
-//         let mut gen = Point::new_gen()?;
-//         gen.mul_scalar(signature)?;
-//         let mut xtilde_copy = self.xtilde;
-//         xtilde_copy.mul_scalar(self.c)?;
-//         Ok(gen == self.rsign.add(xtilde_copy)?)
-//     }
+        for i in 1..NB_PARTICIPANT {
+            copy = self.sign[i as usize];
+            sign_crypto = sign_crypto.add(copy.into_crypto_ram()?, modulo)?;
+        }
 
-//     pub fn end_sign(self) -> Result<(), CxSyscallError> {
-//         for i in 0..NB_PARTICIPANT {
-//             self.a[i as usize].destroy()?;
-//             self.sign[i as usize].destroy()?;
-//         }
-//         for i in 0..NB_NONCES {
-//             self.private_nonces[i as usize].destroy()?;
-//             self.r_nonces[i as usize].destroy()?;
-//         }
-//         self.selfa.destroy()?;
-//         self.xtilde.destroy()?;
-//         self.b.destroy()?;
-//         self.rsign.destroy()?;
-//         self.c.destroy()?;
-//         self.selfsign.destroy()?;
-//         self.private_key.destroy()?;
-//         Ok(())
-//     }
+        let signature = sign_crypto.into_ram()?;
+        nanos_sdk::debug_print("signature : \n");
+        signature.debug_show()?;
+
+        //destroy
+        modulo.destroy()?;
+        Ok(signature)
+    }
+
+    //fonction de vérif :
+    pub fn verif(&self) -> Result<bool, CxSyscallError> {
+        let copy = self.signature()?;
+        let mut signature_crypto = copy.into_crypto_ram()?;
+        let mut left_crypto = Point::new_gen()?;
+        left_crypto.mul_scalar(signature_crypto)?;
+        let left = left_crypto.into_ram()?;
+
+        let mut xtilde_copy = self.xtilde;
+        let c_copy = self.c;
+        let mut xtilde_crypto = xtilde_copy.into_crypto_ram()?;
+        xtilde_crypto.mul_scalar(c_copy.into_crypto_ram()?)?;
+        let rsign_copy = self.rsign;
+        let mut right_crypto = rsign_copy.into_crypto_ram()?;
+        right_crypto = right_crypto.add(xtilde_crypto)?;
+        let right = right_crypto.into_ram()?;
+
+        Ok(left == right)
+    }
 }
