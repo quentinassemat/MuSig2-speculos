@@ -15,3 +15,20 @@ speculos 1 test
 docker run --rm -it -v "$(pwd)"/rust4speculos/target/thumbv6m-none-eabi/release:/speculos/apps \
 -p 1234:1234 -p 5000:5000 -p 40000:40000 -p 41000:41000 ghcr.io/ledgerhq/speculos \
 --model nanos ./apps/deps/rust_app-fa104bf6edb9d1e1 --sdk 2.0 --seed "secret2" --display headless --apdu-port 40000 --vnc-port 41000
+
+
+
+questions :
+
+modifier les opérations add/mul pour que ça modifie directement la variable comme mul_scalar pour que ça prenne moins de place
+dans quelles mesures séparer les opérations comme ici :
+
+let mut right_crypto = rsign_copy.into_crypto_ram()?;
+right_crypto = right_crypto.add(xtilde_crypto)?;
+let right = right_crypto.into_ram()?
+
+au lieu de 
+
+let right = ((rsign_copy.into_crypto_ram()?).add(xtilde_crypto)).into_ram()?;
+
+ça permet d'économiser de la place en s

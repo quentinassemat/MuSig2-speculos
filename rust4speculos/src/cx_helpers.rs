@@ -205,6 +205,30 @@ pub fn cx_bn_rand(x: CxBn) -> Result<(), CxSyscallError> {
     }
 }
 
+pub fn cx_bn_destroy(mut x: CxBn) -> Result<(), CxSyscallError> {
+    let err = unsafe { bindings::cx_bn_destroy(&mut x.x as *mut u32) };
+    if err != 0 {
+        let cx_err: CxSyscallError = err.into();
+        nanos_sdk::debug_print("err cx_bn_destroy\n");
+        cx_err.show();
+        Err(cx_err)
+    } else {
+        Ok(())
+    }
+}
+
+pub fn cx_bn_cmp(a: CxBn, b: CxBn, mut diff: i32) -> Result<(), CxSyscallError> {
+    let err = unsafe { bindings::cx_bn_cmp(a.x, b.x, &mut diff as *mut i32) };
+    if err != 0 {
+        let cx_err: CxSyscallError = err.into();
+        nanos_sdk::debug_print("err cx_bn_cmp\n");
+        cx_err.show();
+        Err(cx_err)
+    } else {
+        Ok(())
+    }
+}
+
 // WRAPPERS AUTOUR DES EC POINT DU SDK
 
 pub fn cx_ecpoint_alloc(
@@ -323,7 +347,7 @@ pub fn cx_ecdomain_generator_bn(
 }
 
 pub fn cx_ecpoint_is_at_infinity(
-    p: &bindings::cx_ecpoint_t,
+    p: &mut bindings::cx_ecpoint_t,
     out: *mut bool,
 ) -> Result<(), CxSyscallError> {
     let err = unsafe { bindings::cx_ecpoint_is_at_infinity(p, out) };
@@ -337,60 +361,14 @@ pub fn cx_ecpoint_is_at_infinity(
     }
 }
 
-// PAS SUPPORTÉ PAR SPECULOS IL SEMBLE
-
-// pub fn cx_ecpoint_is_on_curve(
-//     p: &bindings::cx_ecpoint_t,
-//     out: *mut bool,
-// ) -> Result<(), CxSyscallError> {
-//     let err = unsafe { bindings::cx_ecpoint_is_on_curve(p, out) };
-//     if err != 0 {
-//         let cx_err: CxSyscallError = err.into();
-//         nanos_sdk::debug_print("err cx_ecpoint_is_on_curve\n");
-//         cx_err.show();
-//         Err(cx_err)
-//     } else {
-//         Ok(())
-//     }
-// }
-
-// // WRAPPERS AUTOUR DES FONCTIONS DE HASH
-
-// #[derive(Clone, Copy)]
-// pub struct CxHash {
-//     pub x: bindings::cx_hash_t,
-// }
-
-// impl CxHash {
-//     pub fn new() -> CxHash {
-//         let h : bindings::cx_hash_t = bindings::cx_hash_t::default();
-//         let err = unsafe {
-//             bindings::cx_hash_init(&h, bindings::CX_SHA256);
-//         };
-//         CxHash { h }
-//     }
-// }
-
-// pub fn cx_hash_update(hash: CxHash, in: &[u8], in_len: usize) -> Result<(), CxSyscallError> {
-//     let err = unsafe { bindings::cx_hash_update(&hash, in.as_ptr(), in_len) };
-//     if err != 0 {
-//         let cx_err: CxSyscallError = err.into();
-//         nanos_sdk::debug_print("err cx_hash_update\n");
-//         cx_err.show();
-//         Err(cx_err)
-//     } else {
-//         Ok(())
-//     }
-// }
-
-// pub fn cx_hash_final(hash: CxHash, digest: mut &[u8]) -> Result<(), CxSyscallError> {
-//     let err = unsafe { bindings::cx_hash_final(&hash, digest.as_mut_ptr()) };
-//     if err != 0 {
-//         let cx_err: CxSyscallError = err.into();
-//         nanos_sdk::debug_print("err cx_hash_update\n");
-//         cx_err.show();
-//         Err(cx_err)
-//     } else {
-//         Ok(())
-//     }
-// }
+pub fn cx_ecpoint_destroy(p: &mut bindings::cx_ecpoint_t) -> Result<(), CxSyscallError> {
+    let err = unsafe { bindings::cx_ecpoint_destroy(p as *mut bindings::cx_ec_point_s) };
+    if err != 0 {
+        let cx_err: CxSyscallError = err.into();
+        nanos_sdk::debug_print("err cx_ecpoint_destroy\n");
+        cx_err.show();
+        Err(cx_err)
+    } else {
+        Ok(())
+    }
+}
