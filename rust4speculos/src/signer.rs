@@ -55,17 +55,20 @@ impl Signer {
         cx_bn_lock(N_BYTES, 0)?;
 
         //gen secret_key
-        let private_key: Field = Field::new_rand()?;
+        let privkey: Field = Field::new_rand()?;
 
         // on génère la clef publique
-        let mut public_key = Point::new_gen()?;
-        public_key.mul_scalar(private_key)?;
+        let mut pubkey = Point::new_gen()?;
+        pubkey.mul_scalar(&privkey)?;
+
+        let public_key = pubkey.into_ram()?;
+        let private_key = privkey.into_ram()?;
 
         // on libère la ram crypto, on chargera quand on aura besoin de calculer
 
         Ok(Signer {
-            public_key : public_key.into_ram()?,
-            private_key : private_key.into_ram()?,
+            public_key,
+            private_key,
         })
     }
 
@@ -78,6 +81,8 @@ impl Signer {
 
 impl Signer1 {
     pub fn new(s: &Signer) -> Result<Signer1, CxSyscallError> {
+        cx_bn_lock(N_BYTES, 0)?;
+
         let private_nonces: [FieldBytes; NB_NONCES as usize] = [FieldBytes::new()?; NB_NONCES as usize];
 
         let public_nonces: [PointBytes; NB_NONCES as usize] =
@@ -85,14 +90,6 @@ impl Signer1 {
 
         let public_key = s.public_key;
         let private_key = s.private_key;
-
-        // let x1 = hex!("23cdc4924412d491d0ed13272372e945ddd9886c32592f8ac9b7b37dcd8adc7d");
-        // let y1 = hex!("20d88572e9fdbe872c1dbfbdb9921cb8d17af04a63b65646aa7bc29f42d16f41");
-        // let pk1: PointBytes = PointBytes::new_init(&x1, &y1)?;
-
-        // let x2 = hex!("79717b8ad6bd8efa41af00e682d97004be32738b54a30d2a0141eb2c2590baa0");
-        // let y2 = hex!("bffee15e85c9be9478e34e251baa3a2e11aef8269d8b1a695ceb7ff177185fd8");
-        // let pk2: PointBytes = PointBytes::new_init(&x2, &y2)?;
 
         let pubkeys: [PointBytes ; NB_PARTICIPANT as usize] = [PointBytes::new_gen()?; NB_PARTICIPANT as usize]; 
 
@@ -116,7 +113,7 @@ impl Signer1 {
             // idem nonces puliques et clefs publiques
             let private_nonce = Field::new_rand()?;
             let mut public_nonce = Point::new_gen()?;
-            public_nonce.mul_scalar(private_nonce)?;
+            public_nonce.mul_scalar(&private_nonce)?;
             nanos_sdk::debug_print("private/public nonces : \n");
             self.private_nonces[i as usize] = private_nonce.into_ram()?;
             self.private_nonces[i as usize].debug_show()?;
@@ -193,7 +190,7 @@ impl Signer1 {
             for i in 1..NB_PARTICIPANT {
                 copy = self.nonces[i as usize][j as usize];
                 let add = copy.into_crypto_ram()?;
-                temp = temp.add(add)?;
+                temp.add_opti(&add)?;
                 add.destroy()?;
             }
             r_nonces[j as usize] = temp.into_ram()?;
@@ -244,15 +241,15 @@ impl Signer1 {
         let mut xtilde_crypto = copy.into_crypto_ram()?;
         let copy = a[0 as usize];
         let mul = copy.into_crypto_ram()?;
-        xtilde_crypto.mul_scalar(mul)?;
+        xtilde_crypto.mul_scalar(&mul)?;
         mul.destroy()?;
         for i in 1..NB_PARTICIPANT {
             let copy = self.pubkeys[i as usize];
             let mut add = copy.into_crypto_ram()?;
             let copy = a[i as usize];
             let ai = copy.into_crypto_ram()?;
-            add.mul_scalar(ai)?;
-            xtilde_crypto = xtilde_crypto.add(add)?;
+            add.mul_scalar(&ai)?;
+            xtilde_crypto.add_opti(&add)?;
             add.destroy()?;
             ai.destroy()?;
         }
@@ -311,9 +308,9 @@ impl Signer1 {
             for j in 1..NB_NONCES {
                 let copy = r_nonces[j as usize];
                 let mut mul = copy.into_crypto_ram()?;
-                mul.mul_scalar(temp_b)?;
-                rsign_crypto = rsign_crypto.add(mul)?;
-                temp_b = temp_b.mul(b_crypto, modulo)?;
+                mul.mul_scalar(&temp_b)?;
+                rsign_crypto.add_opti(&mul)?;
+                temp_b.mul_opti(&b_crypto, &modulo)?;
                 mul.destroy()?;
             }
             rsign = rsign_crypto.into_ram()?;
@@ -365,17 +362,18 @@ impl Signer1 {
             for j in 1..NB_NONCES {
                 copy = self.private_nonces[j as usize];
                 let mut mul = copy.into_crypto_ram()?;
-                mul = mul.mul(temp_b, modulo)?;
-                temp = temp.add(mul, modulo)?;
-                temp_b = temp_b.mul(b_crypto, modulo)?;
+                mul.mul_opti(&temp_b, &modulo)?;
+                temp.add_opti(&mul, &modulo)?;
+                temp_b.mul_opti(&b_crypto, &modulo)?;
             }
             let pk_copy = self.private_key;
             let sa_copy = selfa;
             let c_copy = c;
             let mut mul = c_copy.into_crypto_ram()?;
-            mul = mul.mul(sa_copy.into_crypto_ram()?, modulo)?;
-            mul = mul.mul(pk_copy.into_crypto_ram()?, modulo)?;
-            selfsign = (mul.add(temp, modulo)?).into_ram()?;
+            mul.mul_opti(&sa_copy.into_crypto_ram()?, &modulo)?;
+            mul.mul_opti(&pk_copy.into_crypto_ram()?, &modulo)?;
+            mul.add_opti(&temp, &modulo)?;
+            selfsign = mul.into_ram()?;
 
             //destroy
             temp.destroy()?;
@@ -431,7 +429,9 @@ impl Signer2 {
 
         for i in 1..NB_PARTICIPANT {
             copy = self.sign[i as usize];
-            sign_crypto = sign_crypto.add(copy.into_crypto_ram()?, modulo)?;
+            let copy_crypto = copy.into_crypto_ram()?;
+            sign_crypto.add_opti(&copy_crypto, &modulo)?;
+            copy_crypto.destroy()?;
         }
 
         let signature = sign_crypto.into_ram()?;
@@ -448,18 +448,25 @@ impl Signer2 {
         let copy = self.signature()?;
         let mut signature_crypto = copy.into_crypto_ram()?;
         let mut left_crypto = Point::new_gen()?;
-        left_crypto.mul_scalar(signature_crypto)?;
+        left_crypto.mul_scalar(&signature_crypto)?;
         let left = left_crypto.into_ram()?;
 
         let mut xtilde_copy = self.xtilde;
         let c_copy = self.c;
         let mut xtilde_crypto = xtilde_copy.into_crypto_ram()?;
-        xtilde_crypto.mul_scalar(c_copy.into_crypto_ram()?)?;
+        xtilde_crypto.mul_scalar(&c_copy.into_crypto_ram()?)?;
         let rsign_copy = self.rsign;
         let mut right_crypto = rsign_copy.into_crypto_ram()?;
-        right_crypto = right_crypto.add(xtilde_crypto)?;
+        right_crypto.add_opti(&xtilde_crypto)?;
         let right = right_crypto.into_ram()?;
 
         Ok(left == right)
     }
 }
+
+impl Drop for Signer2 {
+    fn drop(&mut self) {
+        cx_bn_unlock().unwrap();
+    }
+}
+

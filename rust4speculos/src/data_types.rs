@@ -77,7 +77,6 @@ impl PartialEq for FieldBytes {
     }
 }
 
-#[derive(Copy, Clone)]
 pub struct Field {
     pub index: CxBn,
 }
@@ -131,7 +130,7 @@ impl Field {
         Ok(Field { index })
     }
 
-    pub fn add(&self, other: Field, modulo: Field) -> Result<Field, CxSyscallError> {
+    pub fn add(&self, other: &Field, modulo: &Field) -> Result<Field, CxSyscallError> {
         // addition de self et other avec le modulo ( qui sera l'ordre de la courbe SECP256K1)
 
         // on check si c'est lock
@@ -149,7 +148,22 @@ impl Field {
         Ok(Field { index })
     }
 
-    pub fn mul(&self, other: Field, modulo: Field) -> Result<Field, CxSyscallError> {
+    pub fn add_opti(&mut self, other: &Field, modulo: &Field) -> Result<(), CxSyscallError> {
+        // addition de self et other avec le modulo ( qui sera l'ordre de la courbe SECP256K1)
+
+        // on check si c'est lock
+        if !cx_bn_is_locked() {
+            return Err(CxSyscallError::NotLocked);
+        }
+
+        // on fait l'addition
+        cx_bn_mod_add(self.index, self.index, other.index, modulo.index)?;
+
+        // on renvoie le résultat
+        Ok(())
+    }
+
+    pub fn mul(&self, other: &Field, modulo: &Field) -> Result<Field, CxSyscallError> {
         // multiplication de self et other avec le modulo ( qui sera l'ordre de la courbe SECP256K1)
 
         // on check si c'est lock
@@ -165,6 +179,21 @@ impl Field {
 
         // on renvoie le résultat
         Ok(Field { index })
+    }
+
+    pub fn mul_opti(&mut self, other: &Field, modulo: &Field) -> Result<(), CxSyscallError> {
+        // multiplication de self et other avec le modulo ( qui sera l'ordre de la courbe SECP256K1)
+
+        // on check si c'est lock
+        if !cx_bn_is_locked() {
+            return Err(CxSyscallError::NotLocked);
+        }
+
+        // on fait l'addition
+        cx_bn_mod_mul(self.index, self.index, other.index, modulo.index)?;
+
+        // on renvoie le résultat
+        Ok(())
     }
 
     pub fn pow(&self, exp: Field, modulo: Field) -> Result<Field, CxSyscallError> {
@@ -208,6 +237,13 @@ impl PartialEq for Field {
     }
 }
 
+// impl Drop for Field {
+//     fn drop(&mut self) {
+//         cx_bn_destroy(self.index).unwrap();
+//         nanos_sdk::debug_print("drop field\n");
+//     }
+// }
+ 
 #[derive(Copy, Clone)]
 pub struct PointBytes {
     pub x_bytes: [u8; N_BYTES as usize],
@@ -299,7 +335,6 @@ impl PartialEq for PointBytes {
     }
 }
 
-#[derive(Copy, Clone)]
 pub struct Point {
     pub p: bindings::cx_ecpoint_t,
 }
@@ -352,7 +387,7 @@ impl Point {
         Ok(Point { p })
     }
 
-    pub fn add(&self, other: Point) -> Result<Point, CxSyscallError> {
+    pub fn add(&self, other: &Point) -> Result<Point, CxSyscallError> {
         // addition de self et other avec l'addition de la courbe elliptique
 
         // on check si c'est lock
@@ -368,7 +403,27 @@ impl Point {
         Ok(Point { p })
     }
 
-    pub fn mul_scalar(&mut self, other: Field) -> Result<(), CxSyscallError> {
+    pub fn add_opti(&mut self, other: &Point) -> Result<(), CxSyscallError> {
+        // addition de self et other avec l'addition de la courbe elliptique
+
+        // on check si c'est lock
+        if !cx_bn_is_locked() {
+            return Err(CxSyscallError::NotLocked);
+        }
+
+        let mut p = cx_ecpoint_alloc(bindings::CX_CURVE_SECP256K1)?;
+
+        // on fait l'addition
+        cx_ecpoint_add(&mut p, &self.p, &other.p)?;
+
+        cx_ecpoint_destroy(&mut self.p);
+
+        self.p = p;
+
+        Ok(())
+    }
+
+    pub fn mul_scalar(&mut self, other: &Field) -> Result<(), CxSyscallError> {
         // multiplication de self par other (Field) (!! modifie self !!)
 
         // on check si c'est lock
@@ -450,6 +505,13 @@ impl PartialEq for Point {
         (self_x == other_x) && (self_y == other_y)
     }
 }
+
+// impl Drop for Point {
+//     fn drop(&mut self) {
+//         cx_ecpoint_destroy(&mut self.p).unwrap();
+//         nanos_sdk::debug_print("drop point");
+//     }
+// }
 
 // WRAPPERS AUTOUR DES FONCTIONS DE HASH
 extern "C" {

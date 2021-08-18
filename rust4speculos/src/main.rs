@@ -80,6 +80,7 @@ fn show_pubkey(s: &mut Signer) -> Result<(), CxSyscallError> {
 extern "C" fn sample_main() {
     let mut comm = io::Comm::new();
     let mut s: Signer = Signer::new().unwrap();
+    cx_bn_unlock().unwrap();
     loop {
         // Draw some 'welcome' screen
 
