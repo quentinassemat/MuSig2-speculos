@@ -191,7 +191,6 @@ impl Signer1 {
                 copy = self.nonces[i as usize][j as usize];
                 let add = copy.into_crypto_ram()?;
                 temp.add_opti(&add)?;
-                add.destroy()?;
             }
             r_nonces[j as usize] = temp.into_ram()?;
             r_nonces[j as usize].debug_show()?;
@@ -242,7 +241,6 @@ impl Signer1 {
         let copy = a[0 as usize];
         let mul = copy.into_crypto_ram()?;
         xtilde_crypto.mul_scalar(&mul)?;
-        mul.destroy()?;
         for i in 1..NB_PARTICIPANT {
             let copy = self.pubkeys[i as usize];
             let mut add = copy.into_crypto_ram()?;
@@ -250,8 +248,6 @@ impl Signer1 {
             let ai = copy.into_crypto_ram()?;
             add.mul_scalar(&ai)?;
             xtilde_crypto.add_opti(&add)?;
-            add.destroy()?;
-            ai.destroy()?;
         }
         let xtilde = xtilde_crypto.into_ram()?;
         xtilde.debug_show()?;
@@ -311,13 +307,9 @@ impl Signer1 {
                 mul.mul_scalar(&temp_b)?;
                 rsign_crypto.add_opti(&mul)?;
                 temp_b.mul_opti(&b_crypto, &modulo)?;
-                mul.destroy()?;
             }
             rsign = rsign_crypto.into_ram()?;
 
-            //destroy
-            temp_b.destroy()?;
-            b_crypto.destroy()?;
         }
         rsign.debug_show()?;
 
@@ -375,10 +367,6 @@ impl Signer1 {
             mul.add_opti(&temp, &modulo)?;
             selfsign = mul.into_ram()?;
 
-            //destroy
-            temp.destroy()?;
-            temp_b.destroy()?;
-            b_crypto.destroy()?;
         }
 
         selfsign.debug_show()?;
@@ -386,9 +374,6 @@ impl Signer1 {
         //init de sign
 
         let sign = [FieldBytes::new()?; NB_PARTICIPANT as usize];
-
-        //destroy
-        modulo.destroy()?;
 
         Ok(Signer2 {
             a,
@@ -431,27 +416,23 @@ impl Signer2 {
             copy = self.sign[i as usize];
             let copy_crypto = copy.into_crypto_ram()?;
             sign_crypto.add_opti(&copy_crypto, &modulo)?;
-            copy_crypto.destroy()?;
         }
 
         let signature = sign_crypto.into_ram()?;
         nanos_sdk::debug_print("signature : \n");
         signature.debug_show()?;
-
-        //destroy
-        modulo.destroy()?;
         Ok(signature)
     }
 
     //fonction de vérif :
     pub fn verif(&self) -> Result<bool, CxSyscallError> {
         let copy = self.signature()?;
-        let mut signature_crypto = copy.into_crypto_ram()?;
+        let signature_crypto = copy.into_crypto_ram()?;
         let mut left_crypto = Point::new_gen()?;
         left_crypto.mul_scalar(&signature_crypto)?;
         let left = left_crypto.into_ram()?;
 
-        let mut xtilde_copy = self.xtilde;
+        let xtilde_copy = self.xtilde;
         let c_copy = self.c;
         let mut xtilde_crypto = xtilde_copy.into_crypto_ram()?;
         xtilde_crypto.mul_scalar(&c_copy.into_crypto_ram()?)?;

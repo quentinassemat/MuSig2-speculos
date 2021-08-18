@@ -219,7 +219,6 @@ impl Field {
     pub fn into_ram(self) -> Result<FieldBytes, CxSyscallError> {
         let mut bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
         cx_bn_export(self.index, &mut bytes)?;
-        cx_bn_destroy(self.index)?;
         Ok(FieldBytes { bytes })
     }
 
@@ -237,12 +236,11 @@ impl PartialEq for Field {
     }
 }
 
-// impl Drop for Field {
-//     fn drop(&mut self) {
-//         cx_bn_destroy(self.index).unwrap();
-//         nanos_sdk::debug_print("drop field\n");
-//     }
-// }
+impl Drop for Field {
+    fn drop(&mut self) {
+        cx_bn_destroy(self.index).unwrap();
+    }
+}
  
 #[derive(Copy, Clone)]
 pub struct PointBytes {
@@ -416,7 +414,7 @@ impl Point {
         // on fait l'addition
         cx_ecpoint_add(&mut p, &self.p, &other.p)?;
 
-        cx_ecpoint_destroy(&mut self.p);
+        cx_ecpoint_destroy(&mut self.p)?;
 
         self.p = p;
 
@@ -488,7 +486,6 @@ impl Point {
         let mut x_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
         let mut y_bytes: [u8; N_BYTES as usize] = [0; N_BYTES as usize];
         cx_ecpoint_export(&self.p, &mut x_bytes, &mut y_bytes)?;
-        cx_ecpoint_destroy(&mut self.p)?;
         Ok(PointBytes { x_bytes, y_bytes })
     }
 
@@ -506,12 +503,11 @@ impl PartialEq for Point {
     }
 }
 
-// impl Drop for Point {
-//     fn drop(&mut self) {
-//         cx_ecpoint_destroy(&mut self.p).unwrap();
-//         nanos_sdk::debug_print("drop point");
-//     }
-// }
+impl Drop for Point {
+    fn drop(&mut self) {
+        cx_ecpoint_destroy(&mut self.p).unwrap();
+    }
+}
 
 // WRAPPERS AUTOUR DES FONCTIONS DE HASH
 extern "C" {
